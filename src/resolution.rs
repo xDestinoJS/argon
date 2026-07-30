@@ -285,8 +285,10 @@ pub enum AmbiguousValue {
 
 impl AmbiguousValue {
 	pub fn resolve(self, class: &str, property: &str) -> anyhow::Result<Variant> {
-		let descriptor =
-			find_descriptor(class, property).ok_or_else(|| format_err!("Unknown property {}.{}", class, property))?;
+		let descriptor = match find_descriptor(class, property) {
+			Some(d) => d,
+			None => return self.resolve_unambiguous(),
+		};
 
 		match &descriptor.data_type {
 			DataType::Enum(enum_name) => {
@@ -537,7 +539,36 @@ impl AmbiguousValue {
 			AmbiguousValue::Bool(value) => Ok(value.into()),
 			AmbiguousValue::Number(value) => Ok(value.into()),
 			AmbiguousValue::String(value) => Ok(value.into()),
-			other => bail!("Cannot unambiguously resolve the value {other:?}"),
+			AmbiguousValue::StringArray(arr) => Ok(Tags::from(arr).into()),
+			AmbiguousValue::Array2(arr) => Ok(UDim::new(arr[0] as f32, arr[1] as i32).into()),
+			AmbiguousValue::Array2Array2(arr) => Ok(UDim2::new(
+				UDim::new(arr[0][0] as f32, arr[0][1] as i32),
+				UDim::new(arr[1][0] as f32, arr[1][1] as i32),
+			)
+			.into()),
+			AmbiguousValue::Array3(arr) => Ok(Vector3::new(arr[0] as f32, arr[1] as f32, arr[2] as f32).into()),
+			AmbiguousValue::Array4(arr) => Ok(Rect::new(
+				Vector2::new(arr[0] as f32, arr[1] as f32),
+				Vector2::new(arr[2] as f32, arr[3] as f32),
+			)
+			.into()),
+			AmbiguousValue::Array12(cf) => Ok(CFrame::new(
+				Vector3::new(cf[0] as f32, cf[1] as f32, cf[2] as f32),
+				Matrix3::new(
+					Vector3::new(cf[3] as f32, cf[4] as f32, cf[5] as f32),
+					Vector3::new(cf[6] as f32, cf[7] as f32, cf[8] as f32),
+					Vector3::new(cf[9] as f32, cf[10] as f32, cf[11] as f32),
+				),
+			)
+			.into()),
+			AmbiguousValue::Attributes(attr) => Ok(attr.into()),
+			AmbiguousValue::Font(f) => Ok(f.into()),
+			AmbiguousValue::ColorSequence(keypoints) => Ok(ColorSequence { keypoints }.into()),
+			AmbiguousValue::NumberSequence(keypoints) => Ok(NumberSequence { keypoints }.into()),
+			AmbiguousValue::MaterialColors(mc) => Ok(mc.into()),
+			AmbiguousValue::PhysicalProperties(pp) => Ok(PhysicalProperties::Custom(pp).into()),
+			AmbiguousValue::Array3Array2(arr) => Ok(NumberRange::new(arr[0][0] as f32, arr[1][0] as f32).into()),
+			AmbiguousValue::Object(_) => bail!("Cannot unambiguously resolve generic object without descriptor"),
 		}
 	}
 
