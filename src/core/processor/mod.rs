@@ -10,10 +10,10 @@ use std::{
 
 use super::{changes::Changes, queue::Queue, tree::Tree};
 use crate::{
-	argon_error,
+	argon_error, argon_info,
 	config::Config,
 	constants::BLACKLISTED_PATHS,
-	lock, logger,
+	lock,
 	project::{Project, ProjectDetails},
 	server, stats,
 	vfs::{Vfs, VfsEvent},
@@ -182,29 +182,13 @@ impl Handler {
 		trace!("Received client event: {:?} changes", changes.total());
 
 		if changes.total() > Config::new().changes_threshold {
-			let accept = logger::prompt(
-				&format!(
-					"You are about to apply {}, {} and {}. Do you want to continue?",
-					format!("{} additions", changes.additions.len()).bold().green(),
-					format!("{} updates", changes.updates.len()).bold().blue(),
-					format!("{} removals", changes.removals.len()).bold().red(),
-				),
-				true,
+			argon_info!(
+				"Applying {}, {} and {} ({} total changes)",
+				format!("{} additions", changes.additions.len()).bold().green(),
+				format!("{} updates", changes.updates.len()).bold().blue(),
+				format!("{} removals", changes.removals.len()).bold().red(),
+				changes.total()
 			);
-
-			if !accept {
-				trace!(
-					"Aborted applying client event! {} changes were not applied",
-					changes.total()
-				);
-
-				match self.queue.disconnect("Client and server got out of sync!", client_id) {
-					Ok(()) => trace!("Client {client_id} disconnected"),
-					Err(err) => warn!("Failed to disconnect client: {err}"),
-				}
-
-				return;
-			}
 		}
 
 		let mut tree = lock!(self.tree);
