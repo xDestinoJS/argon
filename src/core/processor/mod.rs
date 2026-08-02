@@ -40,6 +40,7 @@ impl Processor {
 			tree,
 			vfs: vfs.clone(),
 			project,
+			last_syncback: Arc::new(Mutex::new(None)),
 		});
 
 		let handler = handler.clone();
@@ -79,6 +80,7 @@ struct Handler {
 	tree: Arc<Mutex<Tree>>,
 	vfs: Arc<Vfs>,
 	project: Arc<Mutex<Project>>,
+	last_syncback: Arc<Mutex<Option<(u32, std::time::Instant)>>>,
 }
 
 impl Handler {
@@ -129,7 +131,24 @@ impl Handler {
 		if !changes.is_empty() {
 			stats::files_synced(changes.total() as u32);
 
-			let result = self.queue.push(server::SyncChanges(changes), None);
+			let except_id = {
+				let lock = lock!(self.last_syncback);
+				if let Some((client_id, timestamp)) = *lock {
+					if timestamp.elapsed() < std::time::Duration::from_millis(1500) {
+						Some(client_id)
+					} else {
+						None
+					}
+				} else {
+					None
+				}
+			};
+
+			let result = if let Some(client_id) = except_id {
+				self.queue.push_except(server::SyncChanges(changes), client_id)
+			} else {
+				self.queue.push(server::SyncChanges(changes), None)
+			};
 
 			match result {
 				Ok(()) => trace!("Added changes to the queue"),
@@ -178,6 +197,8 @@ impl Handler {
 
 		let changes = request.changes;
 		let client_id = request.client_id;
+
+		*lock!(self.last_syncback) = Some((client_id, std::time::Instant::now()));
 
 		trace!("Received client event: {:?} changes", changes.total());
 
