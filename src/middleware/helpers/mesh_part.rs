@@ -29,7 +29,12 @@ pub fn save_mesh(properties: &Properties) -> Option<String> {
 
 	for property in CUSTOM_MESH_PART_PROPERTIES {
 		if let Some(value) = properties.get(&ustr(property)) {
-			mesh_properties.insert(property, value.clone());
+			let val = match value {
+				Variant::String(s) => Variant::Content(rbx_dom_weak::types::Content::from(s.as_str())),
+				Variant::ContentId(s) => Variant::Content(rbx_dom_weak::types::Content::from(s.as_str())),
+				v => v.clone(),
+			};
+			mesh_properties.insert(property, val);
 		}
 	}
 
