@@ -54,6 +54,23 @@ pub struct Serve {
 
 impl Serve {
 	pub fn main(self) -> Result<()> {
+		// Stop any previously running Argon sessions to ensure only 1 server runs
+		if let Ok(sessions_list) = sessions::get_all() {
+			if !sessions_list.is_empty() {
+				for (_, session) in sessions_list {
+					if session.pid != process::id() {
+						if let Some(address) = session.get_address() {
+							let url = format!("{address}/stop");
+							let _ = reqwest::blocking::Client::new().post(url).send();
+						} else {
+							crate::util::kill_process(session.pid);
+						}
+					}
+				}
+				let _ = sessions::remove_all();
+			}
+		}
+
 		let project_path = project::resolve(self.project.clone().unwrap_or_default())?;
 
 		Config::load_workspace(project_path.get_parent());
