@@ -9,6 +9,7 @@ use std::{
 use crate::{
 	argon_info,
 	core::Core,
+	ext::PathExt,
 	project::{self, Project},
 };
 
@@ -61,7 +62,14 @@ impl Convert {
 		let output_path = if let Some(output) = self.output {
 			output
 		} else if path.is_dir() {
-			path.with_extension("rbxmx")
+			if path == PathBuf::from(".") || path.file_name().is_none() {
+				let parent = project_path.get_parent();
+				parent.join(format!("{}.rbxmx", core.project().name))
+			} else {
+				let name = path.file_name().unwrap().to_string_lossy();
+				let parent = path.get_parent();
+				parent.join(format!("{}.rbxmx", name))
+			}
 		} else {
 			path.with_extension("json")
 		};
