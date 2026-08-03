@@ -9,6 +9,7 @@ use crate::util;
 
 mod build;
 mod config;
+mod convert;
 mod debug;
 mod doc;
 mod exec;
@@ -131,6 +132,7 @@ impl Cli {
 			Commands::Update(command) => command.main(),
 			Commands::Plugin(command) => command.main(),
 			Commands::Config(command) => command.main(),
+			Commands::Convert(command) => command.main(),
 			Commands::Doc(command) => command.main(),
 		}
 	}
@@ -149,5 +151,6 @@ pub enum Commands {
 	Update(update::Update),
 	Plugin(plugin::Plugin),
 	Config(config::Config),
+	Convert(convert::Convert),
 	Doc(doc::Doc),
 }
