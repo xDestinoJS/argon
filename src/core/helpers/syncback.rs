@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::{
-	argon_error, argon_warn,
+	argon_error,
 	config::Config,
+
 	core::meta::{Meta, SyncbackFilter},
 	ext::PathExt,
 	resolution::UnresolvedValue,
@@ -109,7 +110,7 @@ pub fn verify_name(name: &mut String, meta: &mut Meta) -> bool {
 
 	if !messages.is_empty() {
 		if Config::new().rename_instances {
-			argon_warn!(
+			log::trace!(
 				"Instance with name: {} got renamed to: {}, because: {}!",
 				name.bold(),
 				renamed.bold(),
@@ -147,7 +148,7 @@ pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: 
 		let renamed = format!("{}_{}", name, Uuid::new_v4());
 		let renamed_path = path.with_file_name(format!("{renamed}{suffix}"));
 
-		argon_warn!(
+		log::trace!(
 			"Instance with path: {} got renamed to: {}, because it already exists!",
 			path.to_string().bold(),
 			renamed_path.to_string().bold()
@@ -168,6 +169,7 @@ pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: 
 		false
 	}
 }
+
 
 pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> Properties {
 	// Temporary solution for empty Luau maps being serialized as arrays
