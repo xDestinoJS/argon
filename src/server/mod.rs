@@ -86,6 +86,17 @@ impl Server {
 		HttpServer::new(move || {
 			let mut msgpack_config = MsgPackConfig::default();
 			msgpack_config.limit(MAX_PAYLOAD_SIZE);
+			msgpack_config.error_handler(|err, _req| {
+				let err_str = format!("{err}");
+				log::error!("MsgPack extraction error: {err_str}");
+				actix_web::error::InternalError::from_response(
+					err,
+					actix_web::HttpResponse::BadRequest().body(format!("MsgPack Extraction Error: {err_str}")),
+				)
+				.into()
+			});
+
+
 
 			App::new()
 				.app_data(Data::new(core.clone()))
