@@ -1,7 +1,7 @@
 use colored::Colorize;
 use rbx_dom_weak::{ustr, HashMapExt, UstrMap};
 use std::path::{Path, PathBuf};
-
+use uuid::Uuid;
 
 use crate::{
 	argon_error,
@@ -145,15 +145,8 @@ pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: 
 	if Config::new().keep_duplicates {
 		let suffix = path.get_name().strip_prefix(name.as_str()).unwrap_or_default();
 
-		let mut index = 2;
-		let mut renamed = format!("{} ({index})", name);
-		let mut renamed_path = path.with_file_name(format!("{renamed}{suffix}"));
-
-		while vfs.exists(&renamed_path) && !meta.source.get().path().is_some_and(|p| p == &renamed_path) {
-			index += 1;
-			renamed = format!("{} ({index})", name);
-			renamed_path = path.with_file_name(format!("{renamed}{suffix}"));
-		}
+		let renamed = format!("{}_{}", name, Uuid::new_v4());
+		let renamed_path = path.with_file_name(format!("{renamed}{suffix}"));
 
 		log::trace!(
 			"Instance with path: {} got renamed to: {}, because it already exists!",
@@ -176,7 +169,6 @@ pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: 
 		false
 	}
 }
-
 
 
 pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> Properties {
