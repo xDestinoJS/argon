@@ -487,6 +487,23 @@ impl AmbiguousValue {
 				(VariantType::Ref, AmbiguousValue::String(str)) => {
 					if str == "null" || str.is_empty() {
 						Ok(Ref::none().into())
+					} else if str.len() == 16 {
+						let bytes: [u8; 16] = str.as_bytes().try_into().unwrap();
+						let u128_val = u128::from_le_bytes(bytes);
+						if u128_val == 0 {
+							Ok(Ref::none().into())
+						} else {
+							Ok(Ref::some(u128_val).into())
+						}
+					} else if str.len() == 32 {
+						let clean = str.replace('-', "");
+						if let Ok(uuid) = Uuid::parse_str(&clean) {
+							Ok(Ref::some(uuid.as_u128()).into())
+						} else if let Ok(val) = u128::from_str_radix(&clean, 16) {
+							Ok(Ref::some(val).into())
+						} else {
+							Ok(Ref::none().into())
+						}
 					} else if let Ok(uuid) = Uuid::parse_str(&str) {
 						Ok(Ref::some(uuid.as_u128()).into())
 					} else {
