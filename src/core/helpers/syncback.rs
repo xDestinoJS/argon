@@ -195,10 +195,29 @@ pub fn serialize_properties(class: &str, properties: Properties) -> UstrMap<Unre
 		.collect()
 }
 
-pub fn rename_path(path: &Path, from: &str, to: &str) -> PathBuf {
-	path.with_file_name(format!(
-		"{}{}",
-		to,
-		path.get_name().strip_prefix(from).unwrap_or_default()
-	))
+pub fn rename_path(path: &Path, from: &str, to: &str, vfs: &Vfs) -> PathBuf {
+	let current_name = path.get_name();
+
+	let clean_name = if path.is_file() {
+		let file_str = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+		if let Some(idx) = file_str.find('.') {
+			format!("{}{}", to, &file_str[idx..])
+		} else {
+			to.to_owned()
+		}
+	} else {
+		to.to_owned()
+	};
+
+	let clean_path = path.with_file_name(&clean_name);
+
+	if !vfs.exists(&clean_path) || clean_path == path {
+		clean_path
+	} else {
+		path.with_file_name(format!(
+			"{}{}",
+			to,
+			current_name.strip_prefix(from).unwrap_or_default()
+		))
+	}
 }

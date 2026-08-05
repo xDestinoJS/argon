@@ -48,7 +48,10 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 
 	let parent_id = snapshot.parent;
 	let mut snapshot = Snapshot::from(snapshot);
-	let mut parent_meta = tree.get_meta(parent_id).unwrap().clone();
+	let Some(mut parent_meta) = tree.get_meta(parent_id).cloned() else {
+		warn!("Attempted to add instance {:?} whose parent meta doesn't exist: {:?}", snapshot.id, parent_id);
+		return Ok(());
+	};
 	let filter = parent_meta.context.syncback_filter();
 
 	if filter.matches_name(&snapshot.name) || filter.matches_class(&snapshot.class) {
@@ -471,7 +474,7 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 					return Ok(());
 				}
 
-				path = rename_path(&path, &instance.name, &name);
+				path = rename_path(&path, &instance.name, &name, vfs);
 
 				if !verify_path(&mut path, &mut name, &mut meta, vfs) {
 					return Ok(());
@@ -481,14 +484,14 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 
 				let filter = meta.context.syncback_filter();
 
-				if let Some(SourceEntry::Folder(path)) = meta.source.get_folder_mut() {
-					let new_path = path.with_file_name(&name);
+				if let Some(SourceEntry::Folder(folder_path)) = meta.source.get_folder_mut() {
+					let new_path = rename_path(folder_path, &instance.name, &name, vfs);
 
-					if filter.matches_path(path) && filter.matches_path(&new_path) {
-						filter_warn!(snapshot.id, path);
+					if filter.matches_path(folder_path) && filter.matches_path(&new_path) {
+						filter_warn!(snapshot.id, folder_path);
 					} else {
-						vfs.rename(path, &new_path)?;
-						*path = new_path.clone();
+						let old_path = folder_path.clone();
+						*folder_path = new_path.clone();
 
 						for mut entry in meta.source.relevant_mut() {
 							match &mut entry {
@@ -498,20 +501,23 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 								_ => continue,
 							}
 						}
+
+						vfs.rename(&old_path, &new_path)?;
 					}
 				} else {
 					for mut entry in meta.source.relevant_mut() {
 						match &mut entry {
 							SourceEntry::File(path) | SourceEntry::Data(path) => {
-								let new_path = rename_path(path, &instance.name, &name);
+								let new_path = rename_path(path, &instance.name, &name, vfs);
 
 								if filter.matches_path(path) && filter.matches_path(&new_path) {
 									filter_warn!(snapshot.id, path);
 									continue;
 								}
 
-								vfs.rename(path, &new_path)?;
-								*path = new_path;
+								let old_path = path.clone();
+								*path = new_path.clone();
+								vfs.rename(&old_path, &new_path)?;
 							}
 							_ => continue,
 						}
@@ -649,57 +655,9 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 						if filter.matches_path(path) {
 							filter_warn!(id, path);
 						} else {
-							vfs.remove(path)?
+							vfs.remove(path)?;
 						}
 					}
-				}
-			}
-		}
-
-		// Transform parent instance source from folder to file
-		// if it no longer has any children
-
-		let parent = tree
-			.get_instance(id)
-			.and_then(|instance| tree.get_instance(instance.parent()))
-			.expect("Instance has no parent or parent does not have associated meta");
-
-		if parent.children().len() != 1 {
-			return Ok(());
-		}
-
-		let meta = tree.get_meta_mut(parent.referent()).unwrap();
-
-		if let SourceKind::Path(folder_path) = meta.source.get() {
-			let name = folder_path.get_name();
-
-			if let Some(file) = meta.source.get_file() {
-				let file_path = meta
-					.context
-					.sync_rules()
-					.iter()
-					.find(|rule| rule.matches_child(file.path()))
-					.and_then(|rule| rule.locate(folder_path, name, false));
-
-				if let Some(new_path) = file_path {
-					vfs.rename(file.path(), &new_path)?;
-					let mut source = Source::file(&new_path);
-
-					if let Some(data) = meta.source.get_data() {
-						let data_path = meta
-							.context
-							.sync_rules_of_type(&Middleware::InstanceData, true)
-							.iter()
-							.find_map(|rule| rule.locate(folder_path, name, false));
-
-						if let Some(new_path) = data_path {
-							vfs.rename(data.path(), &new_path)?;
-							source.add_data(&new_path);
-						}
-					}
-
-					vfs.remove(folder_path)?;
-					meta.set_source(source);
 				}
 			}
 		}
@@ -713,11 +671,7 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 			let mut project = Project::load(path)?;
 			let parent_node = project.find_node_by_path(&node_path.parent());
 
-			parent_node.and_then(|node| node.tree.remove(name)).ok_or(anyhow!(
-				"Failed to remove instance {:?} from project: {:?}",
-				id,
-				project
-			))?;
+			parent_node.and_then(|node| node.tree.remove(name));
 
 			if node.path.is_some() {
 				remove_non_project_instances(id, &meta, tree, vfs)?;

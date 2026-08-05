@@ -135,10 +135,12 @@ pub fn default_sync_rules() -> &'static Vec<SyncRule> {
 				.with_suffix(".model.json"),
 			SyncRule::new(Middleware::RbxmModel)
 				.with_pattern("*.rbxm")
-				.with_child_pattern("init.rbxm"),
+				.with_child_pattern("init.rbxm")
+				.with_suffix(".rbxm"),
 			SyncRule::new(Middleware::RbxmxModel)
 				.with_pattern("*.rbxmx")
-				.with_child_pattern("init.rbxmx"),
+				.with_child_pattern("init.rbxmx")
+				.with_suffix(".rbxmx"),
 		]
 	})
 }

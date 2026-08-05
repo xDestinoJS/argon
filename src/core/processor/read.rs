@@ -20,8 +20,8 @@ pub fn process_changes(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Option<Changes> {
 
 	let mut changes = Changes::new();
 
-	let meta = tree.get_meta(id)?;
-	let source = meta.source.get();
+	let meta = tree.get_meta(id)?.clone();
+	let source = meta.source.get().clone();
 
 	let process_path = |path: &Path| -> Option<Option<Snapshot>> {
 		match new_snapshot(path, &meta.context, vfs) {
@@ -33,7 +33,7 @@ pub fn process_changes(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Option<Changes> {
 		}
 	};
 
-	let snapshot = match source {
+	let snapshot = match &source {
 		SourceKind::Project(name, path, node, node_path) => {
 			if node_path.is_root() {
 				process_path(path)?
@@ -47,7 +47,26 @@ pub fn process_changes(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Option<Changes> {
 				}
 			}
 		}
-		SourceKind::Path(path) => process_path(path)?,
+		SourceKind::Path(path) => {
+			let res = process_path(path)?;
+			if res.is_none() {
+				if let Some(inst) = tree.get_instance(id) {
+					let new_path = crate::core::helpers::syncback::rename_path(path, &inst.name, &inst.name, vfs);
+					if vfs.exists(&new_path) {
+						let mut updated_meta = meta.clone();
+						*updated_meta.source.get_mut() = SourceKind::Path(new_path.clone());
+						tree.update_meta(id, updated_meta);
+						process_path(&new_path)?
+					} else {
+						None
+					}
+				} else {
+					None
+				}
+			} else {
+				res
+			}
+		}
 		SourceKind::None => panic!(
 			"Fatal processing error: `SourceKind::None` should not be present in the tree! Id: {id:?}, meta: {meta:#?}"
 		),
@@ -58,8 +77,12 @@ pub fn process_changes(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Option<Changes> {
 		process_child_changes(id, snapshot, &mut changes, tree);
 	// Handle regular removals
 	} else {
-		tree.remove_instance(id);
-		changes.remove(id);
+		let current_meta = tree.get_meta(id);
+		let path_exists = current_meta.and_then(|m| m.source.get().path()).map_or(false, |p| vfs.exists(p));
+		if !path_exists {
+			tree.remove_instance(id);
+			changes.remove(id);
+		}
 	}
 
 	Some(changes)

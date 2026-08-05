@@ -116,8 +116,8 @@ impl Core {
 			let mut snapshot_children = Vec::new();
 
 			for child in children {
-				let meta = tree.get_meta(*child).unwrap();
-				let child = tree.get_instance(*child).unwrap();
+				let Some(meta) = tree.get_meta(*child) else { continue; };
+				let Some(child) = tree.get_instance(*child) else { continue; };
 
 				let snapshot = Snapshot::new()
 					.with_id(child.referent())
@@ -138,7 +138,7 @@ impl Core {
 		} else {
 			tree.root()
 		};
-		let meta = tree.get_meta(root.referent()).unwrap();
+		let meta = tree.get_meta(root.referent()).cloned().unwrap_or_default();
 
 		Some(
 			Snapshot::new()
