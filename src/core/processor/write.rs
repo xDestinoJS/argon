@@ -656,7 +656,7 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 
 	let meta = tree.get_meta(id).unwrap().clone();
 
-	fn remove_non_project_instances(id: Ref, meta: &Meta, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
+	fn remove_non_project_instances(id: Ref, meta: &Meta, _tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 		let filter = meta.context.syncback_filter();
 
 		for entry in meta.source.relevant() {
@@ -670,6 +670,15 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 							filter_warn!(id, path);
 						} else {
 							vfs.remove(path)?;
+							if let Some(parent) = path.parent() {
+								if vfs.exists(parent) && vfs.is_dir(parent) {
+									if let Ok(entries) = vfs.read_dir(parent) {
+										if entries.is_empty() {
+											let _ = vfs.remove(parent);
+										}
+									}
+								}
+							}
 						}
 					}
 				}
