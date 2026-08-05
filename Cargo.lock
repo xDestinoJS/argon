@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "argon-rbx"
-version = "2.0.74"
+version = "2.0.75"
 dependencies = [
  "actix-msgpack",
  "actix-web",
