@@ -20,6 +20,7 @@ use crate::{core::snapshot::Snapshot, lock, middleware::new_snapshot, project::P
 
 pub mod changes;
 pub mod helpers;
+pub mod journal;
 pub mod meta;
 pub mod processor;
 pub mod queue;

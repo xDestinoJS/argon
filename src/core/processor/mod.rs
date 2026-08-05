@@ -35,12 +35,35 @@ pub struct Processor {
 
 impl Processor {
 	pub fn new(queue: Arc<Queue>, tree: Arc<Mutex<Tree>>, vfs: Arc<Vfs>, project: Arc<Mutex<Project>>) -> Self {
+		let project_path = lock!(project).path.clone();
+		let journal = Arc::new(crate::core::journal::Journal::new(&project_path));
+
+		// Crash recovery: replay any pending journal entries from an unexpected crash
+		let recovered = journal.recover();
+		if !recovered.is_empty() {
+			info!("Recovering {} change batches from crash journal..", recovered.len());
+			let mut tree_lock = lock!(tree);
+			for changes in recovered {
+				for snapshot in changes.additions {
+					let _ = write::apply_addition(snapshot, &mut tree_lock, &vfs);
+				}
+				for snapshot in changes.updates {
+					let _ = write::apply_update(snapshot, &mut tree_lock, &vfs);
+				}
+				for id in changes.removals {
+					let _ = write::apply_removal(id, &mut tree_lock, &vfs);
+				}
+			}
+			journal.clear();
+		}
+
 		let handler = Arc::new(Handler {
 			queue,
 			tree,
 			vfs: vfs.clone(),
 			project,
 			last_syncback: Arc::new(Mutex::new(None)),
+			journal: journal.clone(),
 		});
 
 		let handler = handler.clone();
@@ -81,6 +104,7 @@ struct Handler {
 	vfs: Arc<Vfs>,
 	project: Arc<Mutex<Project>>,
 	last_syncback: Arc<Mutex<Option<(u32, std::time::Instant)>>>,
+	journal: Arc<crate::core::journal::Journal>,
 }
 
 impl Handler {
@@ -197,6 +221,8 @@ impl Handler {
 
 		let changes = request.changes;
 		let client_id = request.client_id;
+
+		let _ = self.journal.append(&changes);
 
 		*lock!(self.last_syncback) = Some((client_id, std::time::Instant::now()));
 
