@@ -235,6 +235,20 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 
 		let mut path = parent_path.join(&snapshot.name);
 
+		if tree.exists(snapshot.id) {
+			if let Some(old_meta) = tree.get_meta(snapshot.id).cloned() {
+				for entry in old_meta.source.relevant() {
+					if let SourceEntry::Project(_) = entry {
+						continue;
+					}
+					let old_path = entry.path();
+					if vfs.exists(old_path) && old_path != &path && !old_path.starts_with(&path) {
+						let _ = vfs.remove(old_path);
+					}
+				}
+			}
+		}
+
 		if snapshot.children.is_empty() {
 			if let Some(meta) = write_instance(false, &mut path, &mut snapshot, parent_meta, vfs)? {
 				let snapshot = snapshot.with_meta(meta);
