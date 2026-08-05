@@ -27,8 +27,9 @@ const FORBIDDEN_FILE_NAMES: [&str; 22] = [
 ];
 
 pub fn verify_name(name: &mut String, meta: &mut Meta) -> bool {
-	let (messages, renamed) = {
-		let mut messages = Vec::new();
+	let original_name = name.clone();
+	let (_, renamed) = {
+		let mut messages: Vec<String> = Vec::new();
 		let mut name = name.clone();
 
 		if name.len() > 255 {
@@ -51,56 +52,26 @@ pub fn verify_name(name: &mut String, meta: &mut Meta) -> bool {
 			}
 
 			if !forbidden_chars.is_empty() {
-				let message = if forbidden_chars.len() == 1 {
-					format!(
-						"file name cannot contain {} character",
-						if forbidden_chars[0].is_control() {
-							"ASCII control".bold()
-						} else {
-							forbidden_chars[0].to_string().bold()
-						}
-					)
-				} else {
-					format!(
-						"file name cannot contain {} characters",
-						forbidden_chars
-							.iter()
-							.map(|char| if char.is_control() {
-								"ASCII control".bold().to_string()
-							} else {
-								char.to_string().bold().to_string()
-							})
-							.collect::<Vec<String>>()
-							.join(", ")
-					)
-				};
-
-				messages.push(message);
-
 				for char in forbidden_chars {
-					name = name.replace(char, "");
+					name = name.replace(char, "_");
 				}
 			}
 		}
 
 		#[cfg(windows)]
 		if name.ends_with('.') || name.ends_with(' ') {
-			messages.push("file name cannot end with a period or space".into());
-
 			while name.ends_with('.') || name.ends_with(' ') {
 				name = name[..name.len() - 1].to_owned();
 			}
 		}
 
 		if name.is_empty() {
-			messages.push("file name cannot be empty".into());
 			name = "EmptyName".into();
 		} else {
 			#[cfg(windows)]
 			for file_name in FORBIDDEN_FILE_NAMES {
 				if name == file_name {
-					messages.push(format!("file cannot be named {}", file_name.bold()));
-					name = format!("{}{}", name, name.chars().last().unwrap());
+					name = format!("_{}", name);
 				}
 			}
 		}
@@ -108,30 +79,10 @@ pub fn verify_name(name: &mut String, meta: &mut Meta) -> bool {
 		(messages, name)
 	};
 
-	if !messages.is_empty() {
-		if Config::new().rename_instances {
-			log::trace!(
-				"Instance with name: {} got renamed to: {}, because: {}!",
-				name.bold(),
-				renamed.bold(),
-				messages.iter().map(|m| m.as_str()).collect::<Vec<&str>>().join(" & ")
-			);
-
-			meta.set_original_name(Some(name.to_owned()));
-			*name = renamed;
-
-			return true;
-		} else {
-			argon_error!(
-				"Instance with name: {} is corrupted: {}! Skipping..",
-				name.bold(),
-				messages.iter().map(|m| m.as_str()).collect::<Vec<&str>>().join(" & ")
-			);
-
-			return false;
-		}
-	} else if meta.original_name.is_some() {
-		meta.set_original_name(None);
+	if original_name != renamed {
+		log::trace!("Instance with name: {} sanitized to: {}", original_name, renamed);
+		meta.set_original_name(Some(original_name));
+		*name = renamed;
 	}
 
 	true
