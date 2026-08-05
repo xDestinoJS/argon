@@ -5,6 +5,28 @@ use std::sync::Arc;
 
 use crate::core::{processor::WriteRequest, Core};
 
+fn log_snapshot_tree(name: &str, class: &str, properties: &crate::Properties, children: &[crate::core::snapshot::Snapshot], depth: usize) {
+	let indent = "  ".repeat(depth);
+	let keys: Vec<_> = properties.keys().map(|k| k.as_str()).collect();
+	println!("{}[RUST RECV ADD] Instance: '{}' ({}), Props count: {}, Keys: {:?}", indent, name, class, keys.len(), keys);
+	for (p, v) in properties {
+		let p_str = p.as_str();
+		if matches!(v, rbx_dom_weak::types::Variant::Ref(_))
+			|| p_str.starts_with("Attachment")
+			|| p_str == "PrimaryPart"
+			|| p_str == "Part0"
+			|| p_str == "Part1"
+			|| p_str == "Adornee"
+			|| p_str == "Weld"
+		{
+			println!("{}   -> [REF PROP] {} = {:?}", indent, p, v);
+		}
+	}
+	for child in children {
+		log_snapshot_tree(&child.name, child.class.as_str(), &child.properties, &child.children, depth + 1);
+	}
+}
+
 #[post("/write")]
 async fn main(request: MsgPack<WriteRequest>, core: Data<Arc<Core>>) -> impl Responder {
 	trace!("Received request: write");
@@ -20,11 +42,7 @@ async fn main(request: MsgPack<WriteRequest>, core: Data<Arc<Core>>) -> impl Res
 	);
 
 	for snap in &request.changes.additions {
-		let keys: Vec<_> = snap.properties.keys().map(|k| k.as_str()).collect();
-		println!("[RUST RECV ADD] Instance: '{}' ({}), Properties count: {}, Keys: {:?}", snap.name, snap.class, keys.len(), keys);
-		for (p, v) in &snap.properties {
-			println!("   -> [RUST ADD PROP] {} = {:?}", p, v);
-		}
+		log_snapshot_tree(&snap.name, snap.class.as_str(), &snap.properties, &snap.children, 0);
 	}
 
 	for snap in &request.changes.updates {
