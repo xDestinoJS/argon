@@ -238,10 +238,10 @@ impl Handler {
 			);
 		}
 
-		for snapshot in &changes.additions {
-			for (prop, val) in &snapshot.properties {
-				let p_str = prop.as_str();
-				if matches!(val, rbx_dom_weak::types::Variant::Ref(_))
+		fn log_ref_properties(name: &str, properties: &crate::Properties, children: &[crate::core::snapshot::Snapshot]) {
+			for (p, v) in properties {
+				let p_str = p.as_str();
+				if matches!(v, rbx_dom_weak::types::Variant::Ref(_))
 					|| p_str.starts_with("Attachment")
 					|| p_str == "PrimaryPart"
 					|| p_str == "Part0"
@@ -249,9 +249,16 @@ impl Handler {
 					|| p_str == "Adornee"
 					|| p_str == "Weld"
 				{
-					println!("ADDED ARGON ID FOR {}, for property '{}' ref to {:?}", snapshot.name, prop, val);
+					println!("ADDED ARGON ID FOR {}, for property '{}' ref to {:?}", name, p, v);
 				}
 			}
+			for child in children {
+				log_ref_properties(&child.name, &child.properties, &child.children);
+			}
+		}
+
+		for snapshot in &changes.additions {
+			log_ref_properties(&snapshot.name, &snapshot.properties, &snapshot.children);
 		}
 
 		for snapshot in &changes.updates {
