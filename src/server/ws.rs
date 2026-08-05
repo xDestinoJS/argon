@@ -54,12 +54,14 @@ pub async fn main(req: HttpRequest, stream: actix_web::web::Payload, core: Data<
 		while let Some(Ok(msg)) = stream.next().await {
 			match msg {
 				AggregatedMessage::Binary(bytes) => {
-					if let Ok(write_req) = rmp_serde::from_slice::<WriteRequest>(&bytes) {
+					if let Ok(mut write_req) = rmp_serde::from_slice::<WriteRequest>(&bytes) {
+						write_req.client_id = client_id;
 						core_recv.processor().write(write_req);
 					}
 				}
 				AggregatedMessage::Text(text) => {
-					if let Ok(write_req) = serde_json::from_str::<WriteRequest>(&text) {
+					if let Ok(mut write_req) = serde_json::from_str::<WriteRequest>(&text) {
+						write_req.client_id = client_id;
 						core_recv.processor().write(write_req);
 					}
 				}
