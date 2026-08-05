@@ -158,12 +158,7 @@ pub fn write_data<'a>(
 		})
 		.collect();
 
-	for (prop, val) in properties.iter() {
-		let p_str = prop.as_str();
-		if p_str.contains("Attachment") || p_str.contains("Part") || p_str.contains("PrimaryPart") {
-			println!("ADDED ARGON ID FOR class '{}', for property '{}' ref to {:?}", class, prop, val);
-		}
-	}
+
 
 	let mut data = WritableData {
 		class_name,
