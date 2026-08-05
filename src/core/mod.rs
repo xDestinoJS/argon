@@ -182,7 +182,9 @@ impl Core {
 		let workspace_dir = &self.project().workspace_dir;
 
 		fn walk(tree: &Tree, id: Ref, workspace_dir: &Path, non_scripts: bool) -> Option<SourcemapNode> {
-			let instance = tree.get_instance(id).unwrap();
+			let Some(instance) = tree.get_instance(id) else {
+				return None;
+			};
 
 			let children: Vec<SourcemapNode> = instance
 				.children()

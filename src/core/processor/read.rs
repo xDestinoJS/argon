@@ -92,14 +92,16 @@ fn process_child_changes(id: Ref, mut snapshot: Snapshot, changes: &mut Changes,
 	// Process instance changes
 	let mut updated_snapshot = UpdatedSnapshot::new(id);
 
-	updated_snapshot.meta = if snapshot.meta != *tree.get_meta(id).expect("Instance meta not found") {
-		tree.update_meta(id, snapshot.meta.clone());
-		Some(snapshot.meta)
-	} else {
-		None
-	};
+	if let Some(existing_meta) = tree.get_meta(id) {
+		if snapshot.meta != *existing_meta {
+			tree.update_meta(id, snapshot.meta.clone());
+			updated_snapshot.meta = Some(snapshot.meta);
+		}
+	}
 
-	let instance = tree.get_instance_mut(id).unwrap();
+	let Some(instance) = tree.get_instance_mut(id) else {
+		return;
+	};
 
 	updated_snapshot.name = if snapshot.name != instance.name {
 		instance.name.clone_from(&snapshot.name);
@@ -137,9 +139,11 @@ fn process_child_changes(id: Ref, mut snapshot: Snapshot, changes: &mut Changes,
 	// Pair instances and find removed children
 	#[allow(clippy::unnecessary_to_owned)]
 	for child_id in instance.children().to_owned() {
-		let instance = tree.get_instance(child_id).unwrap();
+		let Some(instance) = tree.get_instance(child_id) else {
+			continue;
+		};
 
-		let snapshot = snapshot.children.iter_mut().enumerate().find(|(index, child)| {
+		let found_child = snapshot.children.iter_mut().enumerate().find(|(index, child)| {
 			if hydrated[*index] {
 				return false;
 			}
@@ -152,7 +156,7 @@ fn process_child_changes(id: Ref, mut snapshot: Snapshot, changes: &mut Changes,
 			false
 		});
 
-		if let Some((_, child)) = snapshot {
+		if let Some((_, child)) = found_child {
 			child.set_id(child_id);
 		} else {
 			tree.remove_instance(child_id);

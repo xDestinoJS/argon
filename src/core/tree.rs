@@ -86,7 +86,9 @@ impl Tree {
 		let mut to_remove = vec![id];
 
 		fn walk(id: Ref, dom: &WeakDom, to_remove: &mut Vec<Ref>) {
-			let instance = dom.get_by_ref(id).unwrap();
+			let Some(instance) = dom.get_by_ref(id) else {
+				return;
+			};
 
 			for child in instance.children() {
 				to_remove.push(*child);

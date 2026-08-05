@@ -353,7 +353,10 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 	trace!("Updating {:?}", snapshot.id);
 
 	if let Some(instance) = tree.get_instance(snapshot.id) {
-		let filter = tree.get_meta(snapshot.id).unwrap().context.syncback_filter();
+		let Some(meta_ref) = tree.get_meta(snapshot.id) else {
+			return Ok(());
+		};
+		let filter = meta_ref.context.syncback_filter();
 
 		if filter.matches_name(&instance.name) || filter.matches_class(&instance.class) {
 			filter_warn!(snapshot.id);
@@ -374,8 +377,14 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 		return Ok(());
 	}
 
-	let mut meta = tree.get_meta(snapshot.id).unwrap().clone();
-	let instance = tree.get_instance_mut(snapshot.id).unwrap();
+	let Some(meta_val) = tree.get_meta(snapshot.id) else {
+		return Ok(());
+	};
+	let mut meta = meta_val.clone();
+
+	let Some(instance) = tree.get_instance_mut(snapshot.id) else {
+		return Ok(());
+	};
 
 	fn locate_instance_data(name: &str, path: &Path, meta: &Meta, vfs: &Vfs) -> Option<PathBuf> {
 		let data_path = if let Some(data) = meta.source.get_data() {
@@ -643,7 +652,10 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 	trace!("Removing {id:?}");
 
 	if let Some(instance) = tree.get_instance(id) {
-		let filter = tree.get_meta(id).unwrap().context.syncback_filter();
+		let Some(meta_ref) = tree.get_meta(id) else {
+			return Ok(());
+		};
+		let filter = meta_ref.context.syncback_filter();
 
 		if filter.matches_name(&instance.name) || filter.matches_class(&instance.class) {
 			filter_warn!(id);
@@ -654,7 +666,10 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 		return Ok(());
 	}
 
-	let meta = tree.get_meta(id).unwrap().clone();
+	let Some(meta_val) = tree.get_meta(id) else {
+		return Ok(());
+	};
+	let meta = meta_val.clone();
 
 	fn remove_non_project_instances(id: Ref, meta: &Meta, _tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 		let filter = meta.context.syncback_filter();
