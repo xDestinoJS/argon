@@ -50,6 +50,17 @@ impl VfsBackend for StdBackend {
 	}
 
 	fn write(&mut self, path: &Path, contents: &[u8]) -> Result<()> {
+		for i in 0..5 {
+			match fs::write(path, contents) {
+				Ok(_) => return Ok(()),
+				Err(err) => {
+					if i == 4 {
+						return Err(err);
+					}
+					std::thread::sleep(std::time::Duration::from_millis(2));
+				}
+			}
+		}
 		fs::write(path, contents)
 	}
 
