@@ -148,7 +148,7 @@ pub fn write_data<'a>(
 		None
 	};
 
-	let properties = properties
+	let properties: BTreeMap<Ustr, UnresolvedValue> = properties
 		.iter()
 		.map(|(property, variant)| {
 			(
@@ -157,6 +157,13 @@ pub fn write_data<'a>(
 			)
 		})
 		.collect();
+
+	for (prop, val) in properties.iter() {
+		let p_str = prop.as_str();
+		if p_str.contains("Attachment") || p_str.contains("Part") || p_str.contains("PrimaryPart") {
+			println!("ADDED ARGON ID FOR class '{}', for property '{}' ref to {:?}", class, prop, val);
+		}
+	}
 
 	let mut data = WritableData {
 		class_name,
