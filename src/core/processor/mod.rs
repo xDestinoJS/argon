@@ -238,6 +238,8 @@ impl Handler {
 			);
 		}
 
+		let mut tree = lock!(self.tree);
+
 		fn log_ref_properties(name: &str, properties: &crate::Properties, children: &[crate::core::snapshot::Snapshot]) {
 			for (p, v) in properties {
 				let p_str = p.as_str();
@@ -262,6 +264,10 @@ impl Handler {
 		}
 
 		for snapshot in &changes.updates {
+			let instance_name = tree.get_instance(snapshot.id)
+				.map(|i| i.name.as_str())
+				.unwrap_or("Instance");
+
 			if let Some(properties) = &snapshot.properties {
 				for (prop, val) in properties {
 					let p_str = prop.as_str();
@@ -273,13 +279,11 @@ impl Handler {
 						|| p_str == "Adornee"
 						|| p_str == "Weld"
 					{
-						println!("ADDED ARGON ID FOR (Update {:?}), for property '{}' ref to {:?}", snapshot.id, prop, val);
+						println!("ADDED ARGON ID FOR {}, for property '{}' ref to {:?}", instance_name, prop, val);
 					}
 				}
 			}
 		}
-
-		let mut tree = lock!(self.tree);
 
 		let result = || -> Result<()> {
 			for snapshot in changes.additions {
