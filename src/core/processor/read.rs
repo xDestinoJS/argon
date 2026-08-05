@@ -148,7 +148,8 @@ fn process_child_changes(id: Ref, mut snapshot: Snapshot, changes: &mut Changes,
 				return false;
 			}
 
-			if child.name == instance.name && child.class == instance.class {
+			let child_orig_name = child.meta.original_name.as_deref().unwrap_or(&child.name);
+			if (child.name == instance.name || child_orig_name == instance.name) && child.class == instance.class {
 				hydrated[*index] = true;
 				return true;
 			}
