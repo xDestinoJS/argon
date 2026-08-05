@@ -23,6 +23,7 @@ mod stop;
 mod subscribe;
 mod unsubscribe;
 mod write;
+mod ws;
 
 #[derive(Debug, Clone, Serialize, FromOne)]
 pub enum Message {
@@ -107,6 +108,7 @@ impl Server {
 				.service(snapshot::main)
 				.service(read::main)
 				.service(write::main)
+				.service(ws::main)
 				.service(exec::main)
 				.service(open::main)
 				.service(stop::main)
