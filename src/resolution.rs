@@ -4,12 +4,13 @@ use anyhow::{bail, format_err, Context};
 use rbx_dom_weak::types::{
 	Attributes, Axes, BinaryString, BrickColor, CFrame, Color3, Color3uint8, ColorSequence, ColorSequenceKeypoint,
 	Content, ContentId, ContentType, CustomPhysicalProperties, Enum, Faces, Font, MaterialColors, Matrix3, NumberRange,
-	NumberSequence, NumberSequenceKeypoint, PhysicalProperties, Ray, Rect, Region3, Region3int16, Tags, UDim, UDim2,
+	NumberSequence, NumberSequenceKeypoint, PhysicalProperties, Ray, Rect, Ref, Region3, Region3int16, Tags, UDim, UDim2,
 	Variant, VariantType, Vector2, Vector2int16, Vector3, Vector3int16,
 };
 use rbx_reflection::{DataType, PropertyDescriptor};
 use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
 use std::{borrow::Borrow, collections::HashMap, fmt::Write};
+use uuid::Uuid;
 
 use crate::{ext::PropertyDescriptorExt, util::get_reflection_database};
 
@@ -213,9 +214,13 @@ impl UnresolvedValue {
 				rect.max.x as f64,
 				rect.max.y as f64,
 			]),
-			// TODO: Implement Ref
-			// Variant::Ref(reference) => AmbiguousValue::
-			//
+			Variant::Ref(referent) => {
+				if referent.is_some() {
+					AmbiguousValue::String(referent.to_string())
+				} else {
+					AmbiguousValue::String("null".into())
+				}
+			}
 			Variant::Region3(region) => AmbiguousValue::Array3Array2([
 				[region.min.x as f64, region.min.y as f64, region.min.z as f64],
 				[region.max.x as f64, region.max.y as f64, region.max.z as f64],
@@ -479,9 +484,15 @@ impl AmbiguousValue {
 					Vector2::new(rect[2] as f32, rect[3] as f32),
 				)
 				.into()),
-				// TODO: Implement Ref
-				// (VariantType::Ref, AmbiguousValue::String(path)) => Ok(),
-				//
+				(VariantType::Ref, AmbiguousValue::String(str)) => {
+					if str == "null" || str.is_empty() {
+						Ok(Ref::none().into())
+					} else if let Ok(uuid) = Uuid::parse_str(&str) {
+						Ok(Ref::some(uuid.as_u128()).into())
+					} else {
+						Ok(Ref::none().into())
+					}
+				}
 				(VariantType::Region3, AmbiguousValue::Array3Array2(region)) => Ok(Region3::new(
 					Vector3::new(region[0][0] as f32, region[0][1] as f32, region[0][2] as f32),
 					Vector3::new(region[1][0] as f32, region[1][1] as f32, region[1][2] as f32),
