@@ -490,7 +490,12 @@ impl AmbiguousValue {
 					} else if let Ok(uuid) = Uuid::parse_str(&str) {
 						Ok(Ref::some(uuid.as_u128()).into())
 					} else {
-						Ok(Ref::none().into())
+						let clean = str.replace('-', "");
+						if let Ok(id) = u128::from_str_radix(&clean, 16) {
+							Ok(Ref::some(id).into())
+						} else {
+							Ok(Ref::none().into())
+						}
 					}
 				}
 				(VariantType::Region3, AmbiguousValue::Array3Array2(region)) => Ok(Region3::new(
