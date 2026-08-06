@@ -1,6 +1,9 @@
 use anyhow::Result;
 use log::error;
-use rbx_dom_weak::{types::Tags, ustr, HashMapExt, Ustr, UstrMap};
+use rbx_dom_weak::{
+	types::{Tags, Variant},
+	ustr, HashMapExt, Ustr, UstrMap,
+};
 use serde::{Deserialize, Serialize};
 use std::{
 	collections::{BTreeMap, HashMap},
@@ -150,6 +153,7 @@ pub fn write_data<'a>(
 
 	let properties: BTreeMap<Ustr, UnresolvedValue> = properties
 		.iter()
+		.filter(|(_, variant)| !matches!(variant, Variant::Ref(reference) if !reference.is_some()))
 		.map(|(property, variant)| {
 			(
 				*property,

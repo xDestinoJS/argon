@@ -1,6 +1,9 @@
 use log::error;
 use multimap::MultiMap;
-use rbx_dom_weak::{types::Ref, Instance, InstanceBuilder, WeakDom};
+use rbx_dom_weak::{
+	types::{Ref, Variant},
+	ustr, Instance, InstanceBuilder, WeakDom,
+};
 use std::{
 	collections::HashMap,
 	path::{Path, PathBuf},
@@ -16,10 +19,16 @@ pub struct Tree {
 }
 
 impl Tree {
-	pub fn new(snapshot: Snapshot) -> Self {
-		let builder = InstanceBuilder::new(snapshot.class)
+	pub fn new(mut snapshot: Snapshot) -> Self {
+		let persisted_id = persisted_argon_id(&snapshot);
+		let mut builder = InstanceBuilder::new(snapshot.class)
 			.with_name(snapshot.name)
 			.with_properties(snapshot.properties);
+
+		if let Some(id) = persisted_id {
+			builder = builder.with_referent(id);
+		}
+		snapshot.id = builder.referent();
 
 		let mut tree = Self {
 			dom: WeakDom::new(builder),
@@ -38,35 +47,50 @@ impl Tree {
 		tree
 	}
 
-	pub fn insert_instance(&mut self, snapshot: Snapshot, parent: Ref) -> Ref {
+	pub fn insert_instance(&mut self, mut snapshot: Snapshot, parent: Ref) -> Ref {
+		let id = self.disk_referent(&snapshot);
+		snapshot.id = id;
 		let builder = InstanceBuilder::new(snapshot.class)
 			.with_name(snapshot.meta.original_name.as_ref().unwrap_or(&snapshot.name))
+			.with_referent(id)
 			.with_properties(snapshot.properties);
 
-		let id = self.dom.insert(parent, builder);
+		let inserted_id = self.dom.insert(parent, builder);
 
-		self.insert_meta(id, snapshot.meta);
+		self.insert_meta(inserted_id, snapshot.meta);
 
-		id
+		inserted_id
 	}
 
-	pub fn insert_instance_recursive(&mut self, snapshot: Snapshot, parent: Ref) -> Ref {
+	pub fn insert_instance_recursive(&mut self, mut snapshot: Snapshot, parent: Ref) -> Ref {
+		let id = self.disk_referent(&snapshot);
+		snapshot.id = id;
 		let builder = InstanceBuilder::new(snapshot.class)
 			.with_name(snapshot.meta.original_name.as_ref().unwrap_or(&snapshot.name))
+			.with_referent(id)
 			.with_properties(snapshot.properties);
 
-		let id = self.dom.insert(parent, builder);
+		let inserted_id = self.dom.insert(parent, builder);
 
-		self.insert_meta(id, snapshot.meta);
+		self.insert_meta(inserted_id, snapshot.meta);
 
 		for child in snapshot.children {
-			self.insert_instance_recursive(child, id);
+			self.insert_instance_recursive(child, inserted_id);
 		}
 
-		id
+		inserted_id
 	}
 
 	pub fn insert_instance_with_ref(&mut self, snapshot: Snapshot, parent: Ref) {
+		if self.exists(snapshot.id) {
+			error!(
+				"Refusing to insert Studio instance '{}' with duplicate active ArgonId {}; the existing DOM entry must be removed first",
+				snapshot.name,
+				snapshot.id
+			);
+			return;
+		}
+
 		let builder = InstanceBuilder::new(snapshot.class)
 			.with_name(snapshot.meta.original_name.as_ref().unwrap_or(&snapshot.name))
 			.with_referent(snapshot.id)
@@ -75,6 +99,37 @@ impl Tree {
 		let id = self.dom.insert(parent, builder);
 
 		self.insert_meta(id, snapshot.meta);
+	}
+
+	fn disk_referent(&self, snapshot: &Snapshot) -> Ref {
+		let Some(id) = persisted_argon_id(snapshot) else {
+			return self.fresh_referent();
+		};
+
+		if !self.exists(id) {
+			return id;
+		}
+
+		let existing = self.get_instance(id);
+		let existing_meta = self.get_meta(id);
+		error!(
+			"Duplicate persisted ArgonId {id} for disk instance '{}' from {:?}; it is already owned by '{}' from {:?}. Keeping the first disk instance and assigning the duplicate a fresh in-memory referent without rewriting disk",
+			snapshot.name,
+			snapshot.meta.source,
+			existing.map(|instance| instance.name.as_str()).unwrap_or("<unknown>"),
+			existing_meta.map(|meta| &meta.source),
+		);
+
+		self.fresh_referent()
+	}
+
+	fn fresh_referent(&self) -> Ref {
+		loop {
+			let id = Ref::new();
+			if !self.exists(id) {
+				return id;
+			}
+		}
 	}
 
 	pub fn remove_instance(&mut self, id: Ref) {
@@ -204,4 +259,25 @@ impl Tree {
 	pub fn place_root_refs(&self) -> &[Ref] {
 		self.dom.root().children()
 	}
+}
+
+fn persisted_argon_id(snapshot: &Snapshot) -> Option<Ref> {
+	let Variant::Attributes(attributes) = snapshot.properties.get(&ustr("Attributes"))? else {
+		return None;
+	};
+	let Variant::String(raw_id) = attributes.get("ArgonId")? else {
+		return None;
+	};
+
+	let normalized = raw_id
+		.chars()
+		.filter(|character| !matches!(character, '{' | '}' | '-'))
+		.collect::<String>()
+		.to_ascii_lowercase();
+
+	if normalized.len() != 32 || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+		return None;
+	}
+
+	normalized.parse::<Ref>().ok().filter(Ref::is_some)
 }

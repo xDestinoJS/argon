@@ -1,6 +1,9 @@
 use anyhow::{bail, Result};
 use log::trace;
-use rbx_dom_weak::{types::Ref, Ustr};
+use rbx_dom_weak::{
+	types::{Ref, Variant},
+	Ustr,
+};
 use serde::Serialize;
 use snapshot::AddedSnapshot;
 use std::{
@@ -16,7 +19,9 @@ use self::{
 	queue::Queue,
 	tree::Tree,
 };
-use crate::{core::snapshot::Snapshot, lock, middleware::new_snapshot, project::Project, stats, util, vfs::Vfs};
+use crate::{
+	core::snapshot::Snapshot, lock, middleware::new_snapshot, project::Project, stats, util, vfs::Vfs, Properties,
+};
 
 pub mod changes;
 pub mod helpers;
@@ -33,6 +38,13 @@ pub struct Core {
 	queue: Arc<Queue>,
 	processor: Arc<Processor>,
 	_vfs: Arc<Vfs>,
+}
+
+fn properties_for_studio(properties: &Properties) -> Properties {
+	let mut properties = properties.clone();
+	properties.retain(|_, variant| !matches!(variant, Variant::Ref(reference) if !reference.is_some()));
+
+	properties
 }
 
 impl Core {
@@ -111,6 +123,18 @@ impl Core {
 
 	/// Create snapshot of the tree or a subtree
 	pub fn snapshot(&self, instance: Ref) -> Option<AddedSnapshot> {
+		// A full snapshot is requested when a Studio client connects. Re-read the
+		// project here so a missed watcher event cannot leave the reconnecting
+		// client with stale in-memory state.
+		if !instance.is_some() {
+			let mut tree = self.tree();
+			let root_ref = tree.root_ref();
+
+			if let Some(changes) = processor::read::process_changes(root_ref, &mut tree, &self._vfs) {
+				trace!("Reconciled {} disk changes before creating initial snapshot", changes.total());
+			}
+		}
+
 		let tree = self.tree();
 
 		fn walk(children: &[Ref], tree: &Tree) -> Vec<Snapshot> {
@@ -124,7 +148,7 @@ impl Core {
 					.with_id(child.referent())
 					.with_name(&child.name)
 					.with_class(&child.class)
-					.with_properties(child.properties.clone())
+					.with_properties(properties_for_studio(&child.properties))
 					.with_children(walk(child.children(), tree))
 					.with_meta(meta.clone());
 
@@ -146,7 +170,7 @@ impl Core {
 				.with_id(root.referent())
 				.with_name(&root.name)
 				.with_class(&root.class)
-				.with_properties(root.properties.clone())
+				.with_properties(properties_for_studio(&root.properties))
 				.with_children(walk(root.children(), &tree))
 				.with_meta(meta.clone())
 				.as_new(root.parent()),
@@ -259,4 +283,34 @@ struct SourcemapNode {
 	file_paths: Vec<PathBuf>,
 	#[serde(skip_serializing_if = "Vec::is_empty")]
 	children: Vec<SourcemapNode>,
+}
+
+#[cfg(test)]
+mod tests {
+	use rbx_dom_weak::{
+		types::{Ref, Variant},
+		ustr,
+	};
+
+	use super::properties_for_studio;
+	use crate::Properties;
+
+	#[test]
+	fn snapshot_omits_all_unassigned_refs_but_keeps_real_references() {
+		let mut properties = Properties::default();
+		properties.insert(ustr("PrimaryPart"), Variant::Ref(Ref::none()));
+		properties.insert(ustr("Attachment0"), Variant::Ref(Ref::none()));
+		properties.insert(ustr("Archivable"), Variant::Bool(true));
+
+		let filtered = properties_for_studio(&properties);
+		assert!(!filtered.contains_key(&ustr("PrimaryPart")));
+		assert!(!filtered.contains_key(&ustr("Attachment0")));
+		assert_eq!(filtered.get(&ustr("Archivable")), Some(&Variant::Bool(true)));
+
+		let target = Ref::new();
+		properties.insert(ustr("Part0"), Variant::Ref(target));
+
+		let filtered = properties_for_studio(&properties);
+		assert_eq!(filtered.get(&ustr("Part0")), Some(&Variant::Ref(target)));
+	}
 }

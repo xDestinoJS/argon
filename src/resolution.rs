@@ -290,6 +290,22 @@ pub enum AmbiguousValue {
 
 impl AmbiguousValue {
 	pub fn resolve(self, class: &str, property: &str) -> anyhow::Result<Variant> {
+		if property == "Attributes" {
+			return match self {
+				AmbiguousValue::Attributes(attr) => Ok(attr.into()),
+				AmbiguousValue::Object(value) => {
+					let mut attributes = Attributes::new();
+
+					for (key, unresolved) in value {
+						attributes.insert(key, unresolved.resolve_unambiguous()?);
+					}
+
+					Ok(attributes.into())
+				}
+				unresolved => unresolved.resolve_unambiguous(),
+			};
+		}
+
 		let descriptor = match find_descriptor(class, property) {
 			Some(d) => d,
 			None => return self.resolve_unambiguous(),
@@ -584,7 +600,17 @@ impl AmbiguousValue {
 			AmbiguousValue::MaterialColors(mc) => Ok(mc.into()),
 			AmbiguousValue::PhysicalProperties(pp) => Ok(PhysicalProperties::Custom(pp).into()),
 			AmbiguousValue::Array3Array2(arr) => Ok(NumberRange::new(arr[0][0] as f32, arr[1][0] as f32).into()),
-			AmbiguousValue::Object(_) => bail!("Cannot unambiguously resolve generic object without descriptor"),
+			AmbiguousValue::Object(map) => {
+				let mut attributes = Attributes::new();
+
+				for (key, unresolved) in map {
+					if let Ok(val) = unresolved.resolve_unambiguous() {
+						attributes.insert(key, val);
+					}
+				}
+
+				Ok(attributes.into())
+			}
 		}
 	}
 

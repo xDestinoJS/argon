@@ -192,3 +192,42 @@ fn insert_children(snapshot: &mut Snapshot, parent: Ref, tree: &mut Tree) {
 		insert_children(child, id, tree);
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use super::process_changes;
+	use crate::{
+		core::{meta::Context, tree::Tree},
+		middleware::new_snapshot,
+		vfs::Vfs,
+	};
+
+	#[test]
+	fn rescan_removes_child_when_delete_event_was_missed() {
+		let vfs = Vfs::new_virtual();
+		let project_path = Path::new("project");
+		let child_path = project_path.join("Part");
+
+		vfs.create_dir(project_path).unwrap();
+		vfs.create_dir(&child_path).unwrap();
+
+		let snapshot = new_snapshot(project_path, &Context::default(), &vfs)
+			.unwrap()
+			.unwrap();
+		let mut tree = Tree::new(snapshot);
+		let root_ref = tree.root_ref();
+
+		assert_eq!(tree.root().children().len(), 1);
+
+		// Simulate a filesystem watcher missing the deletion entirely: disk has
+		// changed, but no VFS event was passed to process_changes.
+		vfs.remove(&child_path).unwrap();
+
+		let changes = process_changes(root_ref, &mut tree, &vfs).unwrap();
+
+		assert_eq!(changes.removals.len(), 1);
+		assert!(tree.root().children().is_empty());
+	}
+}

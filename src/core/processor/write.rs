@@ -261,6 +261,7 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 					}
 				}
 			}
+			tree.remove_instance(snapshot.id);
 		}
 
 		if snapshot.children.is_empty() {
@@ -311,6 +312,9 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 			.with_source(source);
 
 		snapshot.meta = meta;
+		if tree.exists(snapshot.id) {
+			tree.remove_instance(snapshot.id);
+		}
 		tree.insert_instance_with_ref(snapshot.clone(), parent_id);
 
 		let filter = snapshot.meta.context.syncback_filter();

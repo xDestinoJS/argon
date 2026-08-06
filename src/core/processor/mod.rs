@@ -44,14 +44,14 @@ impl Processor {
 			info!("Recovering {} change batches from crash journal..", recovered.len());
 			let mut tree_lock = lock!(tree);
 			for changes in recovered {
+				for id in changes.removals {
+					let _ = write::apply_removal(id, &mut tree_lock, &vfs);
+				}
 				for snapshot in changes.additions {
 					let _ = write::apply_addition(snapshot, &mut tree_lock, &vfs);
 				}
 				for snapshot in changes.updates {
 					let _ = write::apply_update(snapshot, &mut tree_lock, &vfs);
-				}
-				for id in changes.removals {
-					let _ = write::apply_removal(id, &mut tree_lock, &vfs);
 				}
 			}
 			journal.clear();
@@ -240,62 +240,17 @@ impl Handler {
 
 		let mut tree = lock!(self.tree);
 
-		fn log_ref_properties(name: &str, properties: &crate::Properties, children: &[crate::core::snapshot::Snapshot]) {
-			for (p, v) in properties {
-				let p_str = p.as_str();
-				if matches!(v, rbx_dom_weak::types::Variant::Ref(_))
-					|| p_str.starts_with("Attachment")
-					|| p_str == "PrimaryPart"
-					|| p_str == "Part0"
-					|| p_str == "Part1"
-					|| p_str == "Adornee"
-					|| p_str == "Weld"
-				{
-					println!("ADDED ARGON ID FOR {}, for property '{}' ref to {:?}", name, p, v);
-				}
-			}
-			for child in children {
-				log_ref_properties(&child.name, &child.properties, &child.children);
-			}
-		}
-
-		for snapshot in &changes.additions {
-			log_ref_properties(&snapshot.name, &snapshot.properties, &snapshot.children);
-		}
-
-		for snapshot in &changes.updates {
-			let instance_name = tree.get_instance(snapshot.id)
-				.map(|i| i.name.as_str())
-				.unwrap_or("Instance");
-
-			if let Some(properties) = &snapshot.properties {
-				for (prop, val) in properties {
-					let p_str = prop.as_str();
-					if matches!(val, rbx_dom_weak::types::Variant::Ref(_))
-						|| p_str.starts_with("Attachment")
-						|| p_str == "PrimaryPart"
-						|| p_str == "Part0"
-						|| p_str == "Part1"
-						|| p_str == "Adornee"
-						|| p_str == "Weld"
-					{
-						println!("ADDED ARGON ID FOR {}, for property '{}' ref to {:?}", instance_name, prop, val);
-					}
-				}
-			}
-		}
-
 		let result = || -> Result<()> {
+			for id in changes.removals {
+				write::apply_removal(id, &mut tree, &self.vfs)?;
+			}
+
 			for snapshot in changes.additions {
 				write::apply_addition(snapshot, &mut tree, &self.vfs)?;
 			}
 
 			for snapshot in changes.updates {
 				write::apply_update(snapshot, &mut tree, &self.vfs)?;
-			}
-
-			for id in changes.removals {
-				write::apply_removal(id, &mut tree, &self.vfs)?;
 			}
 
 			Ok(())

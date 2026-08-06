@@ -1,5 +1,5 @@
 use colored::Colorize;
-use rbx_dom_weak::{ustr, HashMapExt, UstrMap};
+use rbx_dom_weak::{types::Variant, ustr, HashMapExt, UstrMap};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -137,6 +137,7 @@ pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> P
 pub fn serialize_properties(class: &str, properties: Properties) -> UstrMap<UnresolvedValue> {
 	properties
 		.iter()
+		.filter(|(_, variant)| !matches!(variant, Variant::Ref(reference) if !reference.is_some()))
 		.map(|(property, variant)| {
 			(
 				*property,
