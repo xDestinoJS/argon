@@ -1,4 +1,4 @@
-use log::error;
+use log::{error, trace};
 use multimap::MultiMap;
 use rbx_dom_weak::{
 	types::{Ref, Variant},
@@ -83,8 +83,8 @@ impl Tree {
 
 	pub fn insert_instance_with_ref(&mut self, snapshot: Snapshot, parent: Ref) {
 		if self.exists(snapshot.id) {
-			error!(
-				"Refusing to insert Studio instance '{}' with duplicate active ArgonId {}; the existing DOM entry must be removed first",
+			trace!(
+				"Studio instance '{}' with duplicate ArgonId {}; keeping existing DOM entry",
 				snapshot.name,
 				snapshot.id
 			);
@@ -112,8 +112,8 @@ impl Tree {
 
 		let existing = self.get_instance(id);
 		let existing_meta = self.get_meta(id);
-		error!(
-			"Duplicate persisted ArgonId {id} for disk instance '{}' from {:?}; it is already owned by '{}' from {:?}. Keeping the first disk instance and assigning the duplicate a fresh in-memory referent without rewriting disk",
+		trace!(
+			"Duplicate persisted ArgonId {id} for disk instance '{}' from {:?}; it is already owned by '{}' from {:?}. Keeping first disk instance and assigning duplicate fresh in-memory referent",
 			snapshot.name,
 			snapshot.meta.source,
 			existing.map(|instance| instance.name.as_str()).unwrap_or("<unknown>"),
