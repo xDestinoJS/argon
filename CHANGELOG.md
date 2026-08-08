@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.108] - 2026-08-08
+
+### Fixed
+
+- Remove unused ArgonIds from scripts so syncback does not create empty metadata files.
+
 ## [2.0.29] - 2026-05-18
 
 ### Added
