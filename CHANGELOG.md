@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.109] - 2026-08-11
+
+### Fixed
+
+- Prevent delayed client syncback filesystem events from being echoed back as server changes.
+- Recreate missing parent directories when writing instance metadata on Windows.
+- Add instance and operation context to syncback filesystem errors.
+- Remove verbose ArgonId reference diagnostics.
+
 ## [2.0.108] - 2026-08-08
 
 ### Fixed

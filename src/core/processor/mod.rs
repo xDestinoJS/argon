@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use crossbeam_channel::{select, Sender};
 use log::{debug, error, info, trace, warn};
@@ -62,7 +62,6 @@ impl Processor {
 			tree,
 			vfs: vfs.clone(),
 			project,
-			last_syncback: Arc::new(Mutex::new(None)),
 			journal: journal.clone(),
 		});
 
@@ -103,7 +102,6 @@ struct Handler {
 	tree: Arc<Mutex<Tree>>,
 	vfs: Arc<Vfs>,
 	project: Arc<Mutex<Project>>,
-	last_syncback: Arc<Mutex<Option<(u32, std::time::Instant)>>>,
 	journal: Arc<crate::core::journal::Journal>,
 }
 
@@ -155,24 +153,7 @@ impl Handler {
 		if !changes.is_empty() {
 			stats::files_synced(changes.total() as u32);
 
-			let except_id = {
-				let lock = lock!(self.last_syncback);
-				if let Some((client_id, timestamp)) = *lock {
-					if timestamp.elapsed() < std::time::Duration::from_millis(1500) {
-						Some(client_id)
-					} else {
-						None
-					}
-				} else {
-					None
-				}
-			};
-
-			let result = if let Some(client_id) = except_id {
-				self.queue.push_except(server::SyncChanges(changes), client_id)
-			} else {
-				self.queue.push(server::SyncChanges(changes), None)
-			};
+			let result = self.queue.push(server::SyncChanges(changes), None);
 
 			match result {
 				Ok(()) => trace!("Added changes to the queue"),
@@ -220,11 +201,8 @@ impl Handler {
 		profiling::start_frame!();
 
 		let changes = request.changes;
-		let client_id = request.client_id;
 
 		let _ = self.journal.append(&changes);
-
-		*lock!(self.last_syncback) = Some((client_id, std::time::Instant::now()));
 
 		trace!("Received client event: {:?} changes", changes.total());
 
@@ -242,15 +220,20 @@ impl Handler {
 
 		let result = || -> Result<()> {
 			for id in changes.removals {
-				write::apply_removal(id, &mut tree, &self.vfs)?;
+				write::apply_removal(id, &mut tree, &self.vfs)
+					.with_context(|| format!("Failed to apply removal {id:?}"))?;
 			}
 
 			for snapshot in changes.additions {
-				write::apply_addition(snapshot, &mut tree, &self.vfs)?;
+				let id = snapshot.id;
+				write::apply_addition(snapshot, &mut tree, &self.vfs)
+					.with_context(|| format!("Failed to apply addition {id:?}"))?;
 			}
 
 			for snapshot in changes.updates {
-				write::apply_update(snapshot, &mut tree, &self.vfs)?;
+				let id = snapshot.id;
+				write::apply_update(snapshot, &mut tree, &self.vfs)
+					.with_context(|| format!("Failed to apply update {id:?}"))?;
 			}
 
 			Ok(())

@@ -25,6 +25,10 @@ use {
 use super::VfsEvent;
 use crate::constants::SYNCBACK_DEBOUNCE_TIME;
 
+fn should_ignore_syncback_event(is_paused: bool, resumed_at: Instant, event_time: Instant) -> bool {
+	is_paused || event_time.saturating_duration_since(resumed_at) < SYNCBACK_DEBOUNCE_TIME
+}
+
 #[cfg(target_os = "linux")]
 const DEBOUNCE_TIME: Duration = Duration::from_micros(500);
 
@@ -66,13 +70,16 @@ impl VfsDebouncer {
 				};
 
 				for events in inner_receiver {
-					let (is_paused, timestamp) = *local_pause_state.read().unwrap();
-
-					if is_paused || timestamp.elapsed() < SYNCBACK_DEBOUNCE_TIME {
-						continue;
-					}
-
 					for event in events.unwrap() {
+						let (is_paused, timestamp) = *local_pause_state.read().unwrap();
+
+						// Use the time the filesystem event occurred, not the time its
+						// debounced batch happened to arrive. This reliably rejects delayed
+						// client-syncback echoes without hiding later server-side edits.
+						if should_ignore_syncback_event(is_paused, timestamp, event.time) {
+							continue;
+						}
+
 						trace!("Debouncing event, paths: {:?}, kind: {:?}", event.paths, event.kind);
 
 						#[cfg(not(target_os = "linux"))]
@@ -171,6 +178,27 @@ fn debounce(event: &DebouncedEvent) -> Option<VfsEvent> {
 			_ => None,
 		},
 		_ => None,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn delayed_events_from_a_paused_syncback_are_ignored() {
+		let resumed_at = Instant::now();
+		let event_time = resumed_at - Duration::from_secs(1);
+
+		assert!(should_ignore_syncback_event(false, resumed_at, event_time));
+	}
+
+	#[test]
+	fn later_server_events_are_not_ignored() {
+		let resumed_at = Instant::now();
+		let event_time = resumed_at + SYNCBACK_DEBOUNCE_TIME + Duration::from_millis(1);
+
+		assert!(!should_ignore_syncback_event(false, resumed_at, event_time));
 	}
 }
 

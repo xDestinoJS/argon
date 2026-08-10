@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context as AnyhowContext, Result};
+use anyhow::{Context as AnyhowContext, Result};
 use log::{error, trace, warn};
 use path_clean::PathClean;
 use rbx_dom_weak::{types::Ref, HashMapExt, Instance, Ustr, UstrMap};
@@ -60,20 +60,6 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 	}
 
 	snapshot.properties = validate_properties(snapshot.properties, filter);
-
-	for (prop, val) in &snapshot.properties {
-		let p_str = prop.as_str();
-		if matches!(val, rbx_dom_weak::types::Variant::Ref(_))
-			|| p_str.starts_with("Attachment")
-			|| p_str == "PrimaryPart"
-			|| p_str == "Part0"
-			|| p_str == "Part1"
-			|| p_str == "Adornee"
-			|| p_str == "Weld"
-		{
-			println!("ADDED ARGON ID FOR {}, for property '{}' ref to {:?}", snapshot.name, prop, val);
-		}
-	}
 
 	fn locate_instance_data(is_dir: bool, path: &Path, snapshot: &Snapshot, parent_meta: &Meta) -> Result<PathBuf> {
 		parent_meta

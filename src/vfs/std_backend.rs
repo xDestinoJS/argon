@@ -50,6 +50,10 @@ impl VfsBackend for StdBackend {
 	}
 
 	fn write(&mut self, path: &Path, contents: &[u8]) -> Result<()> {
+		if let Some(parent) = path.parent() {
+			fs::create_dir_all(parent)?;
+		}
+
 		for i in 0..5 {
 			match fs::write(path, contents) {
 				Ok(_) => return Ok(()),
@@ -139,5 +143,23 @@ impl VfsBackend for StdBackend {
 
 	fn receiver(&self) -> Receiver<VfsEvent> {
 		self.debouncer.receiver()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use uuid::Uuid;
+
+	#[test]
+	fn write_creates_missing_parent_directories() {
+		let root = std::env::temp_dir().join(format!("argon-vfs-{}", Uuid::new_v4()));
+		let path = root.join("missing").join("nested").join("instance.meta.json");
+		let mut backend = StdBackend::new(false);
+
+		backend.write(&path, b"{}").unwrap();
+
+		assert_eq!(fs::read(&path).unwrap(), b"{}");
+		fs::remove_dir_all(root).unwrap();
 	}
 }

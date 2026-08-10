@@ -1,12 +1,19 @@
 use anyhow::{Context, Result};
 use self_update::backends::github::Update;
-use std::{env, fs::File, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 
 fn main() -> Result<()> {
 	let out_path = PathBuf::from(env::var("OUT_DIR")?).join("Argon.rbxm");
+	println!("cargo:rerun-if-env-changed=ARGON_PLUGIN_PATH");
 
 	if !cfg!(feature = "plugin") {
-		File::create(out_path)?;
+		fs::File::create(out_path)?;
+		return Ok(());
+	}
+
+	if let Ok(plugin_path) = env::var("ARGON_PLUGIN_PATH") {
+		fs::copy(&plugin_path, &out_path)
+			.with_context(|| format!("Failed to bundle local Argon plugin from {plugin_path}"))?;
 		return Ok(());
 	}
 

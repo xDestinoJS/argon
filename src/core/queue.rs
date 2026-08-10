@@ -97,29 +97,6 @@ impl Queue {
 		Ok(())
 	}
 
-	pub fn push_except<M>(&self, message: M, except_id: u32) -> Result<()>
-	where
-		M: Into<Message>,
-	{
-		let message: Message = message.into();
-		let mut did_push = false;
-
-		for listener in read!(self.listeners).iter() {
-			if listener.id == except_id {
-				continue;
-			}
-
-			let queues = read!(self.queues);
-			if let Some(channel) = queues.get(&listener.id) {
-				let sender = channel.sender.clone();
-				sender.send(message.clone())?;
-				did_push = true;
-			}
-		}
-
-		Ok(())
-	}
-
 	pub fn get(&self, id: u32) -> Result<Option<Message>> {
 		if !self.is_subscribed(id) {
 			bail!("Not subscribed")
