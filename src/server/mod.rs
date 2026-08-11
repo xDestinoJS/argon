@@ -102,6 +102,7 @@ impl Server {
 			App::new()
 				.app_data(Data::new(core.clone()))
 				.app_data(msgpack_config)
+				.app_data(web::PayloadConfig::new(MAX_PAYLOAD_SIZE))
 				.service(details::main)
 				.service(subscribe::main)
 				.service(unsubscribe::main)

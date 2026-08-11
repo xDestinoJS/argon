@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Accept empty Lua tables as property maps during MessagePack writes while still rejecting non-empty arrays.
+- Report the exact field path when a MessagePack write cannot be decoded.
 - Prevent delayed client syncback filesystem events from being echoed back as server changes.
 - Recreate missing parent directories when writing instance metadata on Windows.
 - Add instance and operation context to syncback filesystem errors.
