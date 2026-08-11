@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Stop creating script `.meta.json` siblings that contain only an empty `Attributes` map.
+- Remove those exact redundant script metadata files automatically when `argon serve` starts.
 - Accept empty Lua tables as property maps during MessagePack writes while still rejecting non-empty arrays.
 - Report the exact field path when a MessagePack write cannot be decoded.
 - Prevent delayed client syncback filesystem events from being echoed back as server changes.

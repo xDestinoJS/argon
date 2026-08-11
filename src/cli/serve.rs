@@ -10,6 +10,7 @@ use crate::{
 	core::Core,
 	ext::PathExt,
 	integration,
+	middleware::data,
 	program::{Program, ProgramName},
 	project::{self, Project},
 	server::{self, Server},
@@ -98,6 +99,17 @@ impl Serve {
 
 		if !project.is_place() {
 			bail!("Cannot serve non-place project!");
+		}
+
+		let removed_metadata = data::cleanup_redundant_script_metadata(&project)?;
+		if !removed_metadata.is_empty() {
+			argon_info!(
+				"Removed {} redundant script metadata file(s)",
+				removed_metadata.len().to_string().bold()
+			);
+			for path in removed_metadata {
+				debug!("Removed redundant script metadata at {}", path.display());
+			}
 		}
 
 		let use_wally = config.use_wally || (config.detect_project && project.is_wally());
