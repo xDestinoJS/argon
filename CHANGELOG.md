@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.110] - 2026-08-11
+
+### Fixed
+
+- Bundle the plugin fix that syncs the final debounced `GuiObject.Position` value.
+
 ## [2.0.109] - 2026-08-11
 
 ### Fixed
