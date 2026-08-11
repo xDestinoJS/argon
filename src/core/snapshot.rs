@@ -59,7 +59,18 @@ where
 				normalize_empty_variant_maps(&mut value);
 				let mut encoded = Vec::new();
 				rmpv::encode::write_value(&mut encoded, &value).map_err(A::Error::custom)?;
-				let value = rmp_serde::from_slice(&encoded).map_err(A::Error::custom)?;
+				let value = match rmp_serde::from_slice(&encoded) {
+					Ok(value) => value,
+					Err(rmp_serde::decode::Error::Syntax(message))
+						if message.contains("invalid value: byte array, expected a string") =>
+					{
+						log::debug!("Skipping property '{name}' because Studio sent binary data for a string value");
+						continue;
+					}
+					Err(error) => {
+						return Err(A::Error::custom(format!("property '{name}': {error}")));
+					}
+				};
 				properties.insert(name, value);
 			}
 			Ok(properties)
@@ -397,6 +408,29 @@ mod tests {
 		let snapshot: UpdatedSnapshot = rmp_serde::from_slice(&encoded).unwrap();
 		let rotation = snapshot.properties.unwrap().remove(&ustr("Rotation")).unwrap();
 		assert_eq!(rotation, Variant::Float64(45.0));
+	}
+
+	#[test]
+	fn binary_backed_string_property_does_not_reject_the_snapshot() {
+		let encoded = rmp_serde::to_vec_named(&LuaUpdatedSnapshot {
+			id: Ref::new(),
+			properties: rmpv::Value::Map(vec![
+				(
+					rmpv::Value::from("Malformed"),
+					rmpv::Value::Map(vec![(rmpv::Value::from("String"), rmpv::Value::Binary(vec![0xff]))]),
+				),
+				(
+					rmpv::Value::from("Rotation"),
+					rmpv::Value::Map(vec![(rmpv::Value::from("Float64"), rmpv::Value::from(45.0))]),
+				),
+			]),
+		})
+		.unwrap();
+
+		let snapshot: UpdatedSnapshot = rmp_serde::from_slice(&encoded).unwrap();
+		let properties = snapshot.properties.unwrap();
+		assert!(!properties.contains_key(&ustr("Malformed")));
+		assert_eq!(properties.get(&ustr("Rotation")), Some(&Variant::Float64(45.0)));
 	}
 
 	#[test]

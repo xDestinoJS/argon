@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.111] - 2026-08-11
+
+### Fixed
+
+- Keep valid instances and particle properties syncing when Studio sends one string property as raw binary MessagePack data.
+- Include the offending property name in other property decoding errors.
+
 ## [2.0.110] - 2026-08-11
 
 ### Fixed
