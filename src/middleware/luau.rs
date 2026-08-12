@@ -59,13 +59,55 @@ pub fn read_luau(path: &Path, context: &Context, vfs: &Vfs, script_type: ScriptT
 
 #[profiling::function]
 pub fn write_luau(mut properties: Properties, path: &Path, vfs: &Vfs) -> Result<Properties> {
-	let source = if let Some(Variant::String(source)) = properties.remove(&ustr("Source")) {
-		source
-	} else {
-		String::new()
-	};
-
-	vfs.write(path, source.as_bytes())?;
+	match properties.remove(&ustr("Source")) {
+		Some(Variant::String(source)) => vfs.write(path, source.as_bytes())?,
+		// Property-only updates must not truncate an existing script. A missing
+		// Source means "unchanged", except while creating a brand-new script.
+		_ if !vfs.exists(path) => vfs.write(path, &[])?,
+		_ => {}
+	}
 
 	Ok(properties)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn property_only_update_preserves_existing_source() {
+		let vfs = Vfs::new_virtual();
+		let path = Path::new("Test.luau");
+		vfs.write(path, b"return 42").unwrap();
+
+		let mut properties = Properties::default();
+		properties.insert(ustr("Disabled"), Variant::Bool(true));
+
+		let remaining = write_luau(properties, path, &vfs).unwrap();
+		assert_eq!(vfs.read_to_string(path).unwrap(), "return 42");
+		assert_eq!(remaining.get(&ustr("Disabled")), Some(&Variant::Bool(true)));
+	}
+
+	#[test]
+	fn explicit_empty_source_clears_existing_script() {
+		let vfs = Vfs::new_virtual();
+		let path = Path::new("Test.luau");
+		vfs.write(path, b"return 42").unwrap();
+
+		let mut properties = Properties::default();
+		properties.insert(ustr("Source"), Variant::String(String::new()));
+
+		write_luau(properties, path, &vfs).unwrap();
+		assert_eq!(vfs.read_to_string(path).unwrap(), "");
+	}
+
+	#[test]
+	fn source_less_addition_creates_an_empty_script() {
+		let vfs = Vfs::new_virtual();
+		let path = Path::new("Test.luau");
+
+		write_luau(Properties::default(), path, &vfs).unwrap();
+		assert!(vfs.exists(path));
+		assert_eq!(vfs.read_to_string(path).unwrap(), "");
+	}
 }

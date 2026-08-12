@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.112] - 2026-08-12
+
+### Fixed
+
+- Preserve an existing Luau source file when Studio sends an update that does not include `Source`.
+- Clear stale `originalName` metadata when an instance is renamed to a filesystem-safe name.
+
 ## [2.0.111] - 2026-08-11
 
 ### Fixed

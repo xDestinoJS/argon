@@ -8,7 +8,10 @@ use serde::{
 };
 use std::fmt::{self, Debug, Formatter};
 
-use super::{helpers::apply_migrations, meta::Meta};
+use super::{
+	helpers::{apply_migrations, syncback::original_name_matches_path_name},
+	meta::Meta,
+};
 use crate::{middleware::data::DataSnapshot, Properties};
 
 fn normalize_empty_variant_maps(value: &mut rmpv::Value) {
@@ -228,8 +231,16 @@ impl Snapshot {
 		}
 
 		if let Some(original_name) = data.original_name {
-			self.name = original_name.clone();
-			self.meta.set_original_name(Some(original_name));
+			if original_name_matches_path_name(&original_name, &self.name) {
+				self.name = original_name.clone();
+				self.meta.set_original_name(Some(original_name));
+			} else {
+				log::warn!(
+					"Ignoring stale originalName {:?} for filesystem instance {:?}",
+					original_name,
+					self.name
+				);
+			}
 		}
 
 		if let Some(mesh_source) = data.mesh_source {

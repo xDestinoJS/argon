@@ -28,6 +28,10 @@ const FORBIDDEN_FILE_NAMES: [&str; 22] = [
 
 pub fn verify_name(name: &mut String, meta: &mut Meta) -> bool {
 	let original_name = name.clone();
+	// Recompute this marker from the current Studio name. Keeping an old value
+	// after a user renames an instance to a filesystem-safe name makes the next
+	// snapshot resurrect the previous name.
+	meta.set_original_name(None);
 	let (_, renamed) = {
 		let mut messages: Vec<String> = Vec::new();
 		let mut name = name.clone();
@@ -86,6 +90,23 @@ pub fn verify_name(name: &mut String, meta: &mut Meta) -> bool {
 	}
 
 	true
+}
+
+/// Checks whether `originalName` could have produced the current filesystem
+/// name through Argon's sanitizing or duplicate-name suffixing. Any other
+/// pairing is stale metadata left behind by an earlier rename.
+pub fn original_name_matches_path_name(original_name: &str, path_name: &str) -> bool {
+	let mut sanitized = original_name.to_owned();
+	let mut meta = Meta::new();
+	verify_name(&mut sanitized, &mut meta);
+
+	if sanitized == path_name {
+		return true;
+	}
+
+	path_name
+		.strip_prefix(&format!("{sanitized}_"))
+		.is_some_and(|suffix| Uuid::parse_str(suffix).is_ok())
 }
 
 pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: &Vfs) -> bool {
@@ -171,5 +192,40 @@ pub fn rename_path(path: &Path, from: &str, to: &str, vfs: &Vfs) -> PathBuf {
 			to,
 			current_name.strip_prefix(from).unwrap_or_default()
 		))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn safe_rename_clears_stale_original_name() {
+		let mut name = "Right".to_owned();
+		let mut meta = Meta::new().with_original_name("ImageLabel".to_owned());
+
+		assert!(verify_name(&mut name, &mut meta));
+		assert_eq!(name, "Right");
+		assert_eq!(meta.original_name, None);
+	}
+
+	#[test]
+	fn sanitized_name_records_the_studio_name() {
+		let mut name = "Bad/Name".to_owned();
+		let mut meta = Meta::new().with_original_name("OlderName".to_owned());
+
+		assert!(verify_name(&mut name, &mut meta));
+		assert_eq!(name, "Bad_Name");
+		assert_eq!(meta.original_name.as_deref(), Some("Bad/Name"));
+	}
+
+	#[test]
+	fn stale_original_name_does_not_match_an_unrelated_path_name() {
+		assert!(!original_name_matches_path_name("ImageLabel", "Right"));
+		assert!(original_name_matches_path_name("Bad/Name", "Bad_Name"));
+		assert!(original_name_matches_path_name(
+			"ImageLabel",
+			"ImageLabel_550e8400-e29b-41d4-a716-446655440000"
+		));
 	}
 }
