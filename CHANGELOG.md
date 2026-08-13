@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.113] - 2026-08-13
+
+### Fixed
+
+- Resolve `UIShadow.Color` as `Color3` instead of producing identical-looking false updates.
+- Never sync or persist transient `CanvasPosition` or deprecated `FormFactor` properties.
+
 ## [2.0.112] - 2026-08-12
 
 ### Fixed

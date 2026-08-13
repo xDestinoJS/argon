@@ -91,6 +91,14 @@ mod unresolved_value {
 	}
 
 	#[test]
+	fn ui_shadow_color_is_color3_without_reflection_metadata() {
+		assert_eq!(
+			resolve("UIShadow", "Color", "[0.1, 0.2, 0.3]"),
+			Color3::new(0.1, 0.2, 0.3).into()
+		);
+	}
+
+	#[test]
 	fn color3_uint8() {
 		assert_eq!(
 			resolve("Part", "Color3uint8", "[0, 100, 200]"),

@@ -256,6 +256,10 @@ pub fn read_data(path: &Path, class: Option<&str>, vfs: &Vfs) -> Result<DataSnap
 
 	// Resolve properties
 	for (property, value) in data.properties {
+		if matches!(property.as_str(), "CanvasPosition" | "FormFactor" | "Formfactor") {
+			continue;
+		}
+
 		match value.resolve(&class, &property) {
 			Ok(value) => {
 				properties.insert(property, value);
@@ -331,7 +335,8 @@ pub fn write_data<'a>(
 	let properties: BTreeMap<Ustr, UnresolvedValue> = properties
 		.iter()
 		.filter(|(property, variant)| {
-			!matches!(variant, Variant::Ref(reference) if !reference.is_some())
+			!matches!(property.as_str(), "CanvasPosition" | "FormFactor" | "Formfactor")
+				&& !matches!(variant, Variant::Ref(reference) if !reference.is_some())
 				&& !(has_file
 					&& util::is_script(class)
 					&& **property == ustr("Attributes")
@@ -457,6 +462,39 @@ mod tests {
 		let properties = data.get("properties").unwrap().as_object().unwrap();
 		assert!(!properties.contains_key("Attributes"));
 		assert_eq!(properties.get("Disabled"), Some(&serde_json::Value::Bool(true)));
+	}
+
+	#[test]
+	fn transient_and_deprecated_properties_are_never_loaded_or_written() {
+		let vfs = Vfs::new_virtual();
+		let path = Path::new("Frame.meta.json");
+		vfs.write(
+			path,
+			br#"{"className":"ScrollingFrame","properties":{"CanvasPosition":[0,42],"FormFactor":"Brick","BackgroundTransparency":0.5}}"#,
+		)
+		.unwrap();
+
+		let snapshot = read_data(path, None, &vfs).unwrap();
+		assert!(!snapshot.properties.contains_key(&ustr("CanvasPosition")));
+		assert!(!snapshot.properties.contains_key(&ustr("FormFactor")));
+		assert!(snapshot.properties.contains_key(&ustr("BackgroundTransparency")));
+
+		let mut properties = snapshot.properties;
+		properties.insert(
+			ustr("CanvasPosition"),
+			Variant::Vector2(rbx_dom_weak::types::Vector2::new(0.0, 42.0)),
+		);
+		properties.insert(
+			ustr("FormFactor"),
+			Variant::Enum(rbx_dom_weak::types::Enum::from_u32(1)),
+		);
+		write_data(false, "ScrollingFrame", properties, path, &Meta::new(), &vfs).unwrap();
+
+		let written: serde_json::Value = serde_json::from_str(&vfs.read_to_string(path).unwrap()).unwrap();
+		let written_properties = written["properties"].as_object().unwrap();
+		assert!(!written_properties.contains_key("CanvasPosition"));
+		assert!(!written_properties.contains_key("FormFactor"));
+		assert!(written_properties.contains_key("BackgroundTransparency"));
 	}
 
 	#[test]

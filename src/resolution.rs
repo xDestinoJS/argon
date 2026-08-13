@@ -4,8 +4,8 @@ use anyhow::{bail, format_err, Context};
 use rbx_dom_weak::types::{
 	Attributes, Axes, BinaryString, BrickColor, CFrame, Color3, Color3uint8, ColorSequence, ColorSequenceKeypoint,
 	Content, ContentId, ContentType, CustomPhysicalProperties, Enum, Faces, Font, MaterialColors, Matrix3, NumberRange,
-	NumberSequence, NumberSequenceKeypoint, PhysicalProperties, Ray, Rect, Ref, Region3, Region3int16, Tags, UDim, UDim2,
-	Variant, VariantType, Vector2, Vector2int16, Vector3, Vector3int16,
+	NumberSequence, NumberSequenceKeypoint, PhysicalProperties, Ray, Rect, Ref, Region3, Region3int16, Tags, UDim,
+	UDim2, Variant, VariantType, Vector2, Vector2int16, Vector3, Vector3int16,
 };
 use rbx_reflection::{DataType, PropertyDescriptor};
 use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
@@ -301,6 +301,18 @@ impl AmbiguousValue {
 					}
 
 					Ok(attributes.into())
+				}
+				unresolved => unresolved.resolve_unambiguous(),
+			};
+		}
+
+		// UIShadow is newer than the bundled reflection database. Without this
+		// hint its three-number Color value falls back to Vector3, which creates
+		// a permanent false diff against Studio's Color3 value.
+		if class == "UIShadow" && property == "Color" {
+			return match self {
+				AmbiguousValue::Array3(color) => {
+					Ok(Color3::new(color[0] as f32, color[1] as f32, color[2] as f32).into())
 				}
 				unresolved => unresolved.resolve_unambiguous(),
 			};

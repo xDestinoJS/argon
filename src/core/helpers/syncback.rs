@@ -6,7 +6,6 @@ use uuid::Uuid;
 use crate::{
 	argon_error,
 	config::Config,
-
 	core::meta::{Meta, SyncbackFilter},
 	ext::PathExt,
 	resolution::UnresolvedValue,
@@ -142,7 +141,6 @@ pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: 
 	}
 }
 
-
 pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> Properties {
 	// Temporary solution for empty Luau maps being serialized as arrays
 	if properties.contains_key(&ustr("ArgonEmpty")) {
@@ -150,7 +148,10 @@ pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> P
 	} else {
 		properties
 			.into_iter()
-			.filter(|(property, _)| !filter.matches_property(property))
+			.filter(|(property, _)| {
+				!matches!(property.as_str(), "CanvasPosition" | "FormFactor" | "Formfactor")
+					&& !filter.matches_property(property)
+			})
 			.collect()
 	}
 }
@@ -187,11 +188,7 @@ pub fn rename_path(path: &Path, from: &str, to: &str, vfs: &Vfs) -> PathBuf {
 	if !vfs.exists(&clean_path) || clean_path == path {
 		clean_path
 	} else {
-		path.with_file_name(format!(
-			"{}{}",
-			to,
-			current_name.strip_prefix(from).unwrap_or_default()
-		))
+		path.with_file_name(format!("{}{}", to, current_name.strip_prefix(from).unwrap_or_default()))
 	}
 }
 
