@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.114] - 2026-08-13
+
+### Fixed
+
+- Prevent Studio-originated writes from being echoed back to their source client while still syncing other connected clients.
+- Match delayed filesystem notifications by exact path state so real disk edits are no longer swallowed by a global cooldown.
+- Clear completed crash-journal batches so stale moves cannot be replayed into duplicate or incorrectly typed folders.
+- Continue processing independent changes after one update fails, make completed renames idempotent, and report the full failure chain.
+
 ## [2.0.113] - 2026-08-13
 
 ### Fixed

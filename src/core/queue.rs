@@ -97,6 +97,29 @@ impl Queue {
 		Ok(())
 	}
 
+	/// Broadcast a message to every listener except its originating client.
+	/// This is used for Studio syncback: other Studio sessions must receive the
+	/// change, but sending it back to the writer creates a client -> disk ->
+	/// client feedback loop.
+	pub fn push_except<M>(&self, message: M, excluded_id: u32) -> Result<()>
+	where
+		M: Into<Message>,
+	{
+		let message: Message = message.into();
+
+		for listener in read!(self.listeners).iter() {
+			if listener.id == excluded_id || listener.is_internal {
+				continue;
+			}
+
+			let queues = read!(self.queues);
+			let sender = queues.get(&listener.id).unwrap().sender.clone();
+			sender.send(message.clone())?;
+		}
+
+		Ok(())
+	}
+
 	pub fn get(&self, id: u32) -> Result<Option<Message>> {
 		if !self.is_subscribed(id) {
 			bail!("Not subscribed")
@@ -223,5 +246,28 @@ impl Queue {
 			.iter()
 			.find(|listener| !listener.is_internal)
 			.map(|listener| listener.name.to_owned())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn push_except_skips_the_writer_and_internal_listener() {
+		let queue = Queue::new();
+		queue.subscribe_internal().unwrap();
+		queue.subscribe(10, "writer").unwrap();
+		queue.subscribe(11, "other client").unwrap();
+
+		queue.push_except(server::SyncChanges(crate::core::changes::Changes::new()), 10).unwrap();
+
+		let queues = queue.queues.read().unwrap();
+		assert!(queues.get(&0).unwrap().receiver.try_recv().is_err());
+		assert!(queues.get(&10).unwrap().receiver.try_recv().is_err());
+		assert!(matches!(
+			queues.get(&11).unwrap().receiver.try_recv(),
+			Ok(Message::SyncChanges(_))
+		));
 	}
 }

@@ -201,6 +201,8 @@ impl Handler {
 		profiling::start_frame!();
 
 		let changes = request.changes;
+		let changes_for_other_clients = changes.clone();
+		let client_id = request.client_id;
 
 		let _ = self.journal.append(&changes);
 
@@ -219,29 +221,63 @@ impl Handler {
 		let mut tree = lock!(self.tree);
 
 		let result = || -> Result<()> {
+			let mut failures = Vec::new();
+
 			for id in changes.removals {
-				write::apply_removal(id, &mut tree, &self.vfs)
-					.with_context(|| format!("Failed to apply removal {id:?}"))?;
+				if let Err(err) = write::apply_removal(id, &mut tree, &self.vfs)
+					.with_context(|| format!("Failed to apply removal {id:?}"))
+				{
+					failures.push(format!("{err:#}"));
+				}
 			}
 
 			for snapshot in changes.additions {
 				let id = snapshot.id;
-				write::apply_addition(snapshot, &mut tree, &self.vfs)
-					.with_context(|| format!("Failed to apply addition {id:?}"))?;
+				if let Err(err) = write::apply_addition(snapshot, &mut tree, &self.vfs)
+					.with_context(|| format!("Failed to apply addition {id:?}"))
+				{
+					failures.push(format!("{err:#}"));
+				}
 			}
 
 			for snapshot in changes.updates {
 				let id = snapshot.id;
-				write::apply_update(snapshot, &mut tree, &self.vfs)
-					.with_context(|| format!("Failed to apply update {id:?}"))?;
+				if let Err(err) = write::apply_update(snapshot, &mut tree, &self.vfs)
+					.with_context(|| format!("Failed to apply update {id:?}"))
+				{
+					failures.push(format!("{err:#}"));
+				}
 			}
 
-			Ok(())
+			if failures.is_empty() {
+				Ok(())
+			} else {
+				anyhow::bail!(failures.join("; "))
+			}
 		}();
 
+		// The journal protects against a process crash during this batch. If the
+		// process is still alive, never replay a partially applied batch later;
+		// doing so can resurrect moved instances at stale paths.
+		self.journal.clear();
+
 		match result {
-			Ok(()) => trace!("Changes applied successfully"),
-			Err(err) => error!("Failed to apply changes: {err}"),
+			Ok(()) => {
+				trace!("Changes applied successfully");
+
+				// A Studio-originated change is already present in the originating
+				// place. Deliver it directly to other clients instead of relying on
+				// the filesystem watcher to echo it back to everyone.
+				if !changes_for_other_clients.is_empty() {
+					if let Err(err) = self
+						.queue
+						.push_except(server::SyncChanges(changes_for_other_clients), client_id)
+					{
+						warn!("Failed to sync Studio changes to other clients: {err}");
+					}
+				}
+			}
+			Err(err) => error!("Failed to apply changes: {err:#}"),
 		}
 
 		self.queue.push(server::SyncbackChanges(), Some(0)).ok();

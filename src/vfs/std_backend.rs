@@ -56,7 +56,10 @@ impl VfsBackend for StdBackend {
 
 		for i in 0..5 {
 			match fs::write(path, contents) {
-				Ok(_) => return Ok(()),
+				Ok(_) => {
+					self.debouncer.record_syncback_path(path);
+					return Ok(());
+				}
 				Err(err) => {
 					if i == 4 {
 						return Err(err);
@@ -65,27 +68,59 @@ impl VfsBackend for StdBackend {
 				}
 			}
 		}
-		fs::write(path, contents)
+		let result = fs::write(path, contents);
+		if result.is_ok() {
+			self.debouncer.record_syncback_path(path);
+		}
+		result
 	}
 
 	fn create_dir(&mut self, path: &Path) -> Result<()> {
-		fs::create_dir_all(path)
+		let result = fs::create_dir_all(path);
+		if result.is_ok() {
+			self.debouncer.record_syncback_path(path);
+		}
+		result
 	}
 
 	fn rename(&mut self, from: &Path, to: &Path) -> Result<()> {
-		fs::rename(from, to)
+		// Treat a repeated notification for an already completed rename as
+		// success. This is common on Windows and avoids poisoning the rest of a
+		// Studio batch with an os-error-3 from a stale source path.
+		if from == to || (!from.exists() && to.exists()) {
+			self.debouncer.record_syncback_path(from);
+			self.debouncer.record_syncback_path(to);
+			return Ok(());
+		}
+
+		if let Some(parent) = to.parent() {
+			fs::create_dir_all(parent)?;
+		}
+
+		let result = fs::rename(from, to);
+		if result.is_ok() {
+			self.debouncer.record_syncback_path(from);
+			self.debouncer.record_syncback_path(to);
+		}
+		result
 	}
 
 	fn remove(&mut self, path: &Path) -> Result<()> {
 		self.unwatch(path)?;
 
-		if Config::new().move_to_bin {
+		let result = if Config::new().move_to_bin {
 			trash::delete(path).map_err(Error::other)
 		} else if path.is_dir() {
 			fs::remove_dir_all(path)
 		} else {
 			fs::remove_file(path)
+		};
+
+		if result.is_ok() {
+			self.debouncer.record_syncback_path(path);
 		}
+
+		result
 	}
 
 	fn exists(&self, path: &Path) -> bool {

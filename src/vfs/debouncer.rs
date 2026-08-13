@@ -3,11 +3,13 @@ use log::trace;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebouncedEvent, Debouncer, FileIdMap};
 use std::{
+	collections::HashMap,
+	fs,
 	io::{self, Result},
-	path::Path,
-	sync::{mpsc, Arc, RwLock},
+	path::{Path, PathBuf},
+	sync::{mpsc, Arc, Mutex, RwLock},
 	thread::Builder,
-	time::{Duration, Instant},
+	time::{Duration, Instant, SystemTime},
 };
 
 #[cfg(target_os = "macos")]
@@ -17,16 +19,56 @@ use notify::event::DataChange;
 use notify::event::ModifyKind;
 
 #[cfg(target_os = "linux")]
-use {
-	notify::event::{AccessKind, AccessMode, RenameMode},
-	std::path::PathBuf,
-};
+use notify::event::{AccessKind, AccessMode, RenameMode};
 
 use super::VfsEvent;
-use crate::constants::SYNCBACK_DEBOUNCE_TIME;
+const EXPECTED_CHANGE_LIFETIME: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PathState {
+	Missing,
+	Directory,
+	File { len: u64, modified: Option<SystemTime> },
+}
+
+#[derive(Clone, Debug)]
+struct ExpectedChange {
+	state: PathState,
+	expires_at: Instant,
+}
+
+fn path_state(path: &Path) -> PathState {
+	match fs::metadata(path) {
+		Ok(metadata) if metadata.is_dir() => PathState::Directory,
+		Ok(metadata) => PathState::File {
+			len: metadata.len(),
+			modified: metadata.modified().ok(),
+		},
+		Err(_) => PathState::Missing,
+	}
+}
 
 fn should_ignore_syncback_event(is_paused: bool, resumed_at: Instant, event_time: Instant) -> bool {
-	is_paused || event_time.saturating_duration_since(resumed_at) < SYNCBACK_DEBOUNCE_TIME
+	// Only discard events that actually happened while the VFS was paused.
+	// The old post-resume grace period also discarded legitimate editor writes.
+	is_paused || event_time <= resumed_at
+}
+
+fn matches_expected_change(expected: &mut HashMap<PathBuf, ExpectedChange>, path: &Path, now: Instant) -> bool {
+	expected.retain(|_, change| change.expires_at > now);
+
+	let Some(change) = expected.get(path) else {
+		return false;
+	};
+
+	if path_state(path) == change.state {
+		// Keep the expectation until expiry because Windows commonly emits more
+		// than one notification for a single filesystem operation.
+		true
+	} else {
+		expected.remove(path);
+		false
+	}
 }
 
 #[cfg(target_os = "linux")]
@@ -47,6 +89,7 @@ struct DebounceContext {
 pub struct VfsDebouncer {
 	inner: Debouncer<RecommendedWatcher, FileIdMap>,
 	pause_state: Arc<RwLock<(bool, Instant)>>,
+	expected_changes: Arc<Mutex<HashMap<PathBuf, ExpectedChange>>>,
 	receiver: Receiver<VfsEvent>,
 }
 
@@ -59,6 +102,8 @@ impl VfsDebouncer {
 
 		let pause_state = Arc::new(RwLock::new((false, Instant::now())));
 		let local_pause_state = pause_state.clone();
+		let expected_changes = Arc::new(Mutex::new(HashMap::new()));
+		let local_expected_changes = expected_changes.clone();
 
 		Builder::new()
 			.name("debouncer".into())
@@ -76,7 +121,13 @@ impl VfsDebouncer {
 						// Use the time the filesystem event occurred, not the time its
 						// debounced batch happened to arrive. This reliably rejects delayed
 						// client-syncback echoes without hiding later server-side edits.
-						if should_ignore_syncback_event(is_paused, timestamp, event.time) {
+						let path = event_path!(event);
+						if should_ignore_syncback_event(is_paused, timestamp, event.time)
+							|| matches_expected_change(
+								&mut local_expected_changes.lock().unwrap(),
+								&path,
+								Instant::now(),
+							) {
 							continue;
 						}
 
@@ -99,6 +150,7 @@ impl VfsDebouncer {
 		Self {
 			inner: debouncer,
 			pause_state,
+			expected_changes,
 			receiver,
 		}
 	}
@@ -129,6 +181,19 @@ impl VfsDebouncer {
 
 	pub fn resume(&mut self) {
 		*self.pause_state.write().unwrap() = (false, Instant::now());
+	}
+
+	/// Record the final state of a path changed by Studio syncback. Delayed
+	/// watcher notifications are ignored only while that exact state remains;
+	/// a real disk edit changes the fingerprint and is processed immediately.
+	pub fn record_syncback_path(&mut self, path: &Path) {
+		self.expected_changes.lock().unwrap().insert(
+			path.to_owned(),
+			ExpectedChange {
+				state: path_state(path),
+				expires_at: Instant::now() + EXPECTED_CHANGE_LIFETIME,
+			},
+		);
 	}
 
 	pub fn receiver(&self) -> Receiver<VfsEvent> {
@@ -196,9 +261,33 @@ mod tests {
 	#[test]
 	fn later_server_events_are_not_ignored() {
 		let resumed_at = Instant::now();
-		let event_time = resumed_at + SYNCBACK_DEBOUNCE_TIME + Duration::from_millis(1);
+		let event_time = resumed_at + Duration::from_millis(1);
 
 		assert!(!should_ignore_syncback_event(false, resumed_at, event_time));
+	}
+
+	#[test]
+	fn expected_events_are_path_and_state_specific() {
+		let root = std::env::temp_dir().join(format!("argon-debouncer-{}", uuid::Uuid::new_v4()));
+		fs::create_dir_all(&root).unwrap();
+		let path = root.join("script.luau");
+		fs::write(&path, "first").unwrap();
+
+		let mut expected = HashMap::new();
+		expected.insert(
+			path.clone(),
+			ExpectedChange {
+				state: path_state(&path),
+				expires_at: Instant::now() + EXPECTED_CHANGE_LIFETIME,
+			},
+		);
+
+		assert!(matches_expected_change(&mut expected, &path, Instant::now()));
+		std::thread::sleep(Duration::from_millis(2));
+		fs::write(&path, "second and different").unwrap();
+		assert!(!matches_expected_change(&mut expected, &path, Instant::now()));
+
+		fs::remove_dir_all(root).unwrap();
 	}
 }
 

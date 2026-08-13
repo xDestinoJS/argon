@@ -97,6 +97,10 @@ impl VfsBackend for MemBackend {
 	}
 
 	fn rename(&mut self, from: &Path, to: &Path) -> Result<()> {
+		if from == to || (!self.inner.contains_key(from) && self.inner.contains_key(to)) {
+			return Ok(());
+		}
+
 		let entry = self.inner.remove(from);
 
 		match entry {
