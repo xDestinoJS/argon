@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.115] - 2026-08-13
+
+### Fixed
+
+- Keep UUID suffixes created by `keepDuplicates` strictly on disk instead of leaking them into the live server tree and generating false rename updates.
+- Suppress matching Windows watcher notifications for affected parent directories as well as the exact files Argon writes.
+
 ## [2.0.114] - 2026-08-13
 
 ### Fixed

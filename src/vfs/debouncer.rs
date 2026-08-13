@@ -27,8 +27,14 @@ const EXPECTED_CHANGE_LIFETIME: Duration = Duration::from_secs(5);
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PathState {
 	Missing,
-	Directory,
-	File { len: u64, modified: Option<SystemTime> },
+	Directory {
+		modified: Option<SystemTime>,
+		entries: Vec<PathBuf>,
+	},
+	File {
+		len: u64,
+		modified: Option<SystemTime>,
+	},
 }
 
 #[derive(Clone, Debug)]
@@ -39,7 +45,21 @@ struct ExpectedChange {
 
 fn path_state(path: &Path) -> PathState {
 	match fs::metadata(path) {
-		Ok(metadata) if metadata.is_dir() => PathState::Directory,
+		Ok(metadata) if metadata.is_dir() => {
+			let mut entries: Vec<PathBuf> = fs::read_dir(path)
+				.map(|entries| {
+					entries
+						.filter_map(|entry| entry.ok().map(|entry| entry.path()))
+						.collect()
+				})
+				.unwrap_or_default();
+			entries.sort();
+
+			PathState::Directory {
+				modified: metadata.modified().ok(),
+				entries,
+			}
+		}
 		Ok(metadata) => PathState::File {
 			len: metadata.len(),
 			modified: metadata.modified().ok(),
@@ -90,6 +110,7 @@ pub struct VfsDebouncer {
 	inner: Debouncer<RecommendedWatcher, FileIdMap>,
 	pause_state: Arc<RwLock<(bool, Instant)>>,
 	expected_changes: Arc<Mutex<HashMap<PathBuf, ExpectedChange>>>,
+	watched_roots: Vec<PathBuf>,
 	receiver: Receiver<VfsEvent>,
 }
 
@@ -151,6 +172,7 @@ impl VfsDebouncer {
 			inner: debouncer,
 			pause_state,
 			expected_changes,
+			watched_roots: Vec::new(),
 			receiver,
 		}
 	}
@@ -164,6 +186,7 @@ impl VfsDebouncer {
 
 		self.inner.watcher().watch(path, recursive).map_err(map_error)?;
 		self.inner.cache().add_root(path, recursive);
+		self.watched_roots.push(path.to_owned());
 
 		Ok(())
 	}
@@ -171,6 +194,7 @@ impl VfsDebouncer {
 	pub fn unwatch(&mut self, path: &Path) -> Result<()> {
 		self.inner.watcher().unwatch(path).map_err(map_error)?;
 		self.inner.cache().remove_root(path);
+		self.watched_roots.retain(|root| root != path);
 
 		Ok(())
 	}
@@ -187,13 +211,32 @@ impl VfsDebouncer {
 	/// watcher notifications are ignored only while that exact state remains;
 	/// a real disk edit changes the fingerprint and is processed immediately.
 	pub fn record_syncback_path(&mut self, path: &Path) {
-		self.expected_changes.lock().unwrap().insert(
-			path.to_owned(),
-			ExpectedChange {
-				state: path_state(path),
-				expires_at: Instant::now() + EXPECTED_CHANGE_LIFETIME,
-			},
-		);
+		let mut expected = self.expected_changes.lock().unwrap();
+		let expires_at = Instant::now() + EXPECTED_CHANGE_LIFETIME;
+
+		let watched_root = self
+			.watched_roots
+			.iter()
+			.filter(|root| path.starts_with(root))
+			.max_by_key(|root| root.components().count())
+			.cloned();
+
+		// Windows reports both the changed path and one or more containing
+		// directories. Record the entire affected chain. Directory fingerprints
+		// include their entries, so a genuine user move is still processed.
+		for affected_path in path.ancestors() {
+			expected.insert(
+				affected_path.to_owned(),
+				ExpectedChange {
+					state: path_state(affected_path),
+					expires_at,
+				},
+			);
+
+			if watched_root.as_deref() == Some(affected_path) || watched_root.is_none() {
+				break;
+			}
+		}
 	}
 
 	pub fn receiver(&self) -> Receiver<VfsEvent> {

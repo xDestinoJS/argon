@@ -88,7 +88,18 @@ pub fn process_changes(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Option<Changes> {
 	Some(changes)
 }
 
+fn restore_studio_name(snapshot: &mut Snapshot) {
+	// UUID suffixes created by `keepDuplicates` distinguish paths on disk only.
+	// Rescans must compare the persisted `originalName` with the live DOM name;
+	// otherwise every directory notification becomes a false server rename.
+	if let Some(original_name) = &snapshot.meta.original_name {
+		snapshot.name.clone_from(original_name);
+	}
+}
+
 fn process_child_changes(id: Ref, mut snapshot: Snapshot, changes: &mut Changes, tree: &mut Tree) {
+	restore_studio_name(&mut snapshot);
+
 	// Process instance changes
 	let mut updated_snapshot = UpdatedSnapshot::new(id);
 
@@ -197,9 +208,9 @@ fn insert_children(snapshot: &mut Snapshot, parent: Ref, tree: &mut Tree) {
 mod tests {
 	use std::path::Path;
 
-	use super::process_changes;
+	use super::{process_changes, restore_studio_name};
 	use crate::{
-		core::{meta::Context, tree::Tree},
+		core::{meta::Context, snapshot::Snapshot, tree::Tree},
 		middleware::new_snapshot,
 		vfs::Vfs,
 	};
@@ -229,5 +240,16 @@ mod tests {
 
 		assert_eq!(changes.removals.len(), 1);
 		assert!(tree.root().children().is_empty());
+	}
+
+	#[test]
+	fn rescan_uses_original_name_instead_of_duplicate_storage_suffix() {
+		let mut snapshot = Snapshot::new();
+		snapshot.name = "Part_4065d3db-c11f-43da-8bf0-d6418c19d4fe".to_owned();
+		snapshot.meta = crate::core::meta::Meta::new().with_original_name("Part".to_owned());
+
+		restore_studio_name(&mut snapshot);
+
+		assert_eq!(snapshot.name, "Part");
 	}
 }
