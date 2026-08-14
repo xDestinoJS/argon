@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.119] - 2026-08-14
+
+### Changed
+
+- Duplicate filesystem paths now use the instance Argon ID as their storage suffix instead of generating an unrelated UUID.
+- Legacy UUID-suffixed duplicate paths remain recognized during snapshot loading and reconciliation.
+
 ## [2.0.118] - 2026-08-14
 
 ### Fixed

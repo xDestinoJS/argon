@@ -1,7 +1,9 @@
 use colored::Colorize;
-use rbx_dom_weak::{types::Variant, ustr, HashMapExt, UstrMap};
+use rbx_dom_weak::{
+	types::{Ref, Variant},
+	ustr, HashMapExt, UstrMap,
+};
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 use crate::{
 	argon_error,
@@ -103,12 +105,12 @@ pub fn original_name_matches_path_name(original_name: &str, path_name: &str) -> 
 		return true;
 	}
 
-	path_name
-		.strip_prefix(&format!("{sanitized}_"))
-		.is_some_and(|suffix| Uuid::parse_str(suffix).is_ok())
+	path_name.strip_prefix(&format!("{sanitized}_")).is_some_and(|suffix| {
+		uuid::Uuid::parse_str(suffix).is_ok() || suffix.parse::<Ref>().is_ok_and(|referent| referent.is_some())
+	})
 }
 
-pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: &Vfs) -> bool {
+pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, id: Ref, vfs: &Vfs) -> bool {
 	if !vfs.exists(path) || meta.source.get().path().is_some_and(|p| p == path) {
 		return true;
 	}
@@ -116,7 +118,7 @@ pub fn verify_path(path: &mut PathBuf, name: &mut String, meta: &mut Meta, vfs: 
 	if Config::new().keep_duplicates {
 		let suffix = path.get_name().strip_prefix(name.as_str()).unwrap_or_default();
 
-		let renamed = format!("{}_{}", name, Uuid::new_v4());
+		let renamed = format!("{}_{}", name, id);
 		let renamed_path = path.with_file_name(format!("{renamed}{suffix}"));
 
 		log::trace!(
@@ -223,6 +225,10 @@ mod tests {
 		assert!(original_name_matches_path_name(
 			"ImageLabel",
 			"ImageLabel_550e8400-e29b-41d4-a716-446655440000"
+		));
+		assert!(original_name_matches_path_name(
+			"Part",
+			"Part_8afc4ed474da40c0bac118b9678e524a"
 		));
 	}
 }

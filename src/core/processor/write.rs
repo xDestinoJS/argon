@@ -102,7 +102,7 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 					return Ok(None);
 				}
 
-				if !verify_path(path, &mut snapshot.name, &mut meta, vfs) {
+				if !verify_path(path, &mut snapshot.name, &mut meta, snapshot.id, vfs) {
 					return Ok(None);
 				}
 
@@ -110,7 +110,7 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 
 				meta.set_source(Source::child_file(path, &file_path));
 			} else {
-				if !verify_path(&mut file_path, &mut snapshot.name, &mut meta, vfs) {
+				if !verify_path(&mut file_path, &mut snapshot.name, &mut meta, snapshot.id, vfs) {
 					return Ok(None);
 				}
 
@@ -137,7 +137,7 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 				return Ok(None);
 			}
 
-			if !verify_path(path, &mut snapshot.name, &mut meta, vfs) {
+			if !verify_path(path, &mut snapshot.name, &mut meta, snapshot.id, vfs) {
 				return Ok(None);
 			}
 
@@ -191,7 +191,7 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 			let name = sync_rule.get_name(&parent_path);
 			let mut folder_path = parent_path.with_file_name(&name);
 
-			if !verify_path(&mut folder_path, &mut snapshot.name, parent_meta, vfs) {
+			if !verify_path(&mut folder_path, &mut snapshot.name, parent_meta, parent_id, vfs) {
 				return Ok(parent_meta.source.clone());
 			}
 
@@ -514,7 +514,7 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 
 				path = rename_path(&path, &instance.name, &name, vfs);
 
-				if !verify_path(&mut path, &mut name, &mut meta, vfs) {
+				if !verify_path(&mut path, &mut name, &mut meta, snapshot.id, vfs) {
 					return Ok(());
 				}
 
