@@ -72,6 +72,23 @@ pub fn verify(is_managed: bool, with_plugin: bool) -> Result<()> {
 pub fn install_plugin(path: &Path, show_progress: bool) -> Result<()> {
 	fs::create_dir_all(path.get_parent())?;
 
+	// Custom releases bundle the matching plugin at compile time. Prefer that
+	// exact build so `argon plugin install` cannot silently replace it with an
+	// unrelated upstream release.
+	if !ARGON_PLUGIN.is_empty() {
+		fs::write(path, ARGON_PLUGIN)?;
+		let version = env!("CARGO_PKG_VERSION");
+		argon_info!("Installed bundled Argon plugin, version: {}", version.bold());
+
+		if path.contains(&["Roblox", "Plugins"]) {
+			let mut status = updater::get_status()?;
+			status.plugin_version = version.to_owned();
+			updater::set_status(&status)?;
+		}
+
+		return Ok(());
+	}
+
 	let style = util::get_progress_style();
 
 	let update = Update::configure()
