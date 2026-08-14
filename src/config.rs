@@ -75,6 +75,8 @@ pub struct Config {
 	pub rojo_mode: bool,
 	/// Use roblox-ts by default
 	pub ts_mode: bool,
+	/// Organize and route code from src/Features/<Feature>/{client,server,shared}
+	pub feature_based_development: bool,
 
 	/// Automatically rename corrupted instances when syncing back
 	pub rename_instances: bool,
@@ -127,6 +129,7 @@ impl Default for Config {
 
 			rojo_mode: true,
 			ts_mode: false,
+			feature_based_development: false,
 
 			rename_instances: true,
 			keep_duplicates: false,

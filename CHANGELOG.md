@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.120] - 2026-08-14
+
+### Added
+
+- Add opt-in `feature_based_development` routing from `src/Features/<Feature>/{client,server,shared}` into matching `Client.Features`, `Server.Features`, and `Shared.Features` containers.
+- Watch the feature root so feature additions, removals, and edits participate in normal two-way sync without generating a project file.
+
 ## [2.0.119] - 2026-08-14
 
 ### Changed
