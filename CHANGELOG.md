@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.118] - 2026-08-14
+
+### Fixed
+
+- Preserve Studio edits made while server changes are being downloaded by reconciling the final Studio state back to disk after the write settles.
+- Refresh plugin watcher coverage after server-side additions and removals so newly downloaded descendants continue syncing normally.
+
 ## [2.0.117] - 2026-08-14
 
 ### Fixed
