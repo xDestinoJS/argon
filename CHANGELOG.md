@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.122] - 2026-08-15
+
+### Fixed
+
+- Accept Studio additions whose metadata predates the `projectOwned` field instead of rejecting the entire MsgPack write.
+- Avoid creating script metadata for default runtime properties or Argon's private identity while preserving meaningful non-default script settings and custom attributes.
+- Remove existing default-only script metadata automatically when the server starts.
+- Report full-push failures with their original error and traceback instead of `error in error handling`.
+
 ## [2.0.121] - 2026-08-15
 
 ### Added

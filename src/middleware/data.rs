@@ -54,10 +54,16 @@ fn is_redundant_script_metadata(contents: &str) -> bool {
 		return false;
 	};
 
-	properties.len() == 1
-		&& matches!(properties.get("Attributes"), Some(serde_json::Value::Object(attributes))
+	properties.iter().all(|(property, value)| match property.as_str() {
+		"Attributes" => matches!(value, serde_json::Value::Object(attributes)
 			if attributes.is_empty()
-				|| (attributes.len() == 1 && attributes.contains_key("ArgonId")))
+				|| (attributes.len() == 1 && attributes.contains_key("ArgonId"))),
+		"Archivable" => value == &serde_json::Value::Bool(true),
+		"Sandboxed" | "Disabled" => value == &serde_json::Value::Bool(false),
+		"Enabled" => value == &serde_json::Value::Bool(true),
+		"RunContext" => value == "Legacy" || value == 0,
+		_ => false,
+	})
 }
 
 fn is_project_owned_identity_metadata(contents: &str, expected_class: &str) -> bool {
@@ -196,8 +202,9 @@ fn scan_for_redundant_script_metadata(
 	Ok(())
 }
 
-/// Remove script-adjacent metadata files that contain no information besides
-/// an empty Attributes map. Other metadata files are always preserved.
+/// Remove script-adjacent metadata files that contain only default script
+/// state or Argon's private identity. Meaningful execution settings, custom
+/// attributes, and other user-authored metadata are preserved.
 pub fn cleanup_redundant_script_metadata(project: &Project) -> Result<Vec<PathBuf>> {
 	fn collect_paths(node: &ProjectNode, workspace: &Path, paths: &mut HashSet<PathBuf>) {
 		if let Some(source) = &node.path {
@@ -417,6 +424,32 @@ pub fn write_data<'a>(
 	meta: &Meta,
 	vfs: &Vfs,
 ) -> Result<Option<&'a Path>> {
+	let mut properties = properties;
+	if has_file && util::is_script(class) {
+		if matches!(properties.get(&ustr("Archivable")), Some(Variant::Bool(true))) {
+			properties.remove(&ustr("Archivable"));
+		}
+		if matches!(properties.get(&ustr("Sandboxed")), Some(Variant::Bool(false))) {
+			properties.remove(&ustr("Sandboxed"));
+		}
+		if matches!(properties.get(&ustr("Disabled")), Some(Variant::Bool(false))) {
+			properties.remove(&ustr("Disabled"));
+		}
+		if matches!(properties.get(&ustr("Enabled")), Some(Variant::Bool(true))) {
+			properties.remove(&ustr("Enabled"));
+		}
+		if matches!(properties.get(&ustr("RunContext")), Some(Variant::Enum(value)) if value.to_u32() == 0) {
+			properties.remove(&ustr("RunContext"));
+		}
+
+		if let Some(Variant::Attributes(attributes)) = properties.get_mut(&ustr("Attributes")) {
+			attributes.remove("ArgonId");
+			if attributes.is_empty() {
+				properties.remove(&ustr("Attributes"));
+			}
+		}
+	}
+
 	let class_name = if !has_file && class != "Folder" {
 		Some(Ustr::from(class))
 	} else {
@@ -429,10 +462,6 @@ pub fn write_data<'a>(
 			util::is_persistent_property(class, property)
 				&& !matches!(variant, Variant::BinaryString(_) | Variant::SharedString(_))
 				&& !matches!(variant, Variant::Ref(reference) if !reference.is_some())
-				&& !(has_file
-					&& util::is_script(class)
-					&& **property == ustr("Attributes")
-					&& matches!(variant, Variant::Attributes(attributes) if attributes.is_empty()))
 		})
 		.map(|(property, variant)| {
 			(
@@ -590,7 +619,7 @@ mod tests {
 	}
 
 	#[test]
-	fn startup_cleanup_only_removes_exact_empty_script_attributes_metadata() {
+	fn startup_cleanup_removes_only_default_script_metadata() {
 		let root = std::env::temp_dir().join(format!("argon-script-meta-cleanup-{}", Uuid::new_v4()));
 		let src = root.join("src");
 		let legacy = src.join("Legacy");
@@ -626,15 +655,22 @@ mod tests {
 			r#"{"properties":{"Attributes":{"Mode":"Test"}}}"#,
 		)
 		.unwrap();
+		fs::write(src.join("Defaults.luau"), "return {}").unwrap();
+		fs::write(
+			src.join("Defaults.meta.json"),
+			r#"{"properties":{"Archivable":true,"Sandboxed":false,"Disabled":false,"Enabled":true,"RunContext":"Legacy"}}"#,
+		)
+		.unwrap();
 		fs::write(src.join("Orphan.meta.json"), r#"{"properties":{"Attributes":{}}}"#).unwrap();
 
 		let project = Project::load(&project_path).unwrap();
 		let removed = cleanup_redundant_script_metadata(&project).unwrap();
 
-		assert_eq!(removed.len(), 3);
+		assert_eq!(removed.len(), 4);
 		assert!(!src.join("Module.meta.json").exists());
 		assert!(!src.join("Client.meta.json").exists());
 		assert!(!legacy.join("init.meta.json").exists());
+		assert!(!src.join("Defaults.meta.json").exists());
 		assert!(src.join("Meaningful.meta.json").exists());
 		assert!(src.join("NonEmpty.meta.json").exists());
 		assert!(src.join("Orphan.meta.json").exists());

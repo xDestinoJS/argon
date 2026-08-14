@@ -490,7 +490,28 @@ pub struct Meta {
 	pub mesh_source: Option<String>,
 	/// Instance is declared by the project tree and must not create metadata
 	/// beside its `$path` merely to persist Argon's private identity.
+	#[serde(default)]
 	pub project_owned: bool,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Meta;
+	use serde::Serialize;
+
+	#[derive(Serialize)]
+	#[serde(rename_all = "camelCase")]
+	struct LegacyMeta {
+		keep_unknowns: bool,
+	}
+
+	#[test]
+	fn missing_project_owned_is_backward_compatible() {
+		let bytes = rmp_serde::to_vec_named(&LegacyMeta { keep_unknowns: false }).unwrap();
+		let meta: Meta = rmp_serde::from_slice(&bytes).unwrap();
+
+		assert!(!meta.project_owned);
+	}
 }
 
 impl Meta {
