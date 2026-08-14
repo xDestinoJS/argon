@@ -1,7 +1,7 @@
 use anyhow::{Context as AnyhowContext, Result};
 use log::{error, trace, warn};
 use path_clean::PathClean;
-use rbx_dom_weak::{types::Ref, HashMapExt, Instance, Ustr, UstrMap};
+use rbx_dom_weak::{types::Ref, Instance, Ustr};
 use std::path::{Path, PathBuf};
 
 use crate::{
@@ -49,7 +49,10 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 	let parent_id = snapshot.parent;
 	let mut snapshot = Snapshot::from(snapshot);
 	let Some(mut parent_meta) = tree.get_meta(parent_id).cloned() else {
-		warn!("Attempted to add instance {:?} whose parent meta doesn't exist: {:?}", snapshot.id, parent_id);
+		warn!(
+			"Attempted to add instance {:?} whose parent meta doesn't exist: {:?}",
+			snapshot.id, parent_id
+		);
 		return Ok(());
 	};
 	let filter = parent_meta.context.syncback_filter();
@@ -594,21 +597,15 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 		}
 		SourceKind::Project(name, path, node, node_path) => {
 			let mut project = Project::load(&path)?;
+			let mut project_changed = false;
 
 			if let Some(properties) = snapshot.properties {
-				if let Some(custom_path) = node.path {
-					let custom_path = path.with_file_name(custom_path.path()).clean();
-
-					update_non_project_properties(&custom_path, properties, instance, &mut meta, vfs)?;
-
-					let node = project
-						.find_node_by_path(&node_path)
-						.context(format!("Failed to find project node with path {node_path:?}"))?;
-
-					node.properties = UstrMap::new();
-					node.attributes = None;
-					node.tags = Vec::new();
-					node.keep_unknowns = None;
+				if node.path.is_some() {
+					// A `$path` node describes a filesystem mount, not a Studio-created
+					// instance. Never manufacture an init.meta.json beside that mount.
+					// Keep the validated state in memory; explicit project properties
+					// remain owned by default.project.json.
+					instance.properties = validate_properties(properties, meta.context.syncback_filter());
 				} else {
 					let node = project
 						.find_node_by_path(&node_path)
@@ -622,6 +619,7 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 					node.keep_unknowns = None;
 
 					instance.properties = properties;
+					project_changed = true;
 				}
 			}
 
@@ -643,10 +641,13 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 				*meta.source.get_mut() = SourceKind::Project(new_name.clone(), path.clone(), Box::new(node), node_path);
 
 				instance.name = new_name;
+				project_changed = true;
 			}
 
 			tree.update_meta(snapshot.id, meta);
-			project.save(&path)?;
+			if project_changed {
+				project.save(&path)?;
+			}
 
 			if let Some(_class) = snapshot.class {
 				// You can't change the class of an instance inside Roblox Studio

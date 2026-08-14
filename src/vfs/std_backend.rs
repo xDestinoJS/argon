@@ -50,6 +50,21 @@ impl VfsBackend for StdBackend {
 	}
 
 	fn write(&mut self, path: &Path, contents: &[u8]) -> Result<()> {
+		if let Ok(existing) = fs::read(path) {
+			if existing == contents {
+				return Ok(());
+			}
+
+			if Config::new().ignore_line_endings {
+				let normalize = |value: &str| value.replace("\r\n", "\n").replace('\r', "\n");
+				if let (Ok(existing), Ok(incoming)) = (std::str::from_utf8(&existing), std::str::from_utf8(contents)) {
+					if normalize(existing) == normalize(incoming) {
+						return Ok(());
+					}
+				}
+			}
+		}
+
 		if let Some(parent) = path.parent() {
 			fs::create_dir_all(parent)?;
 		}
@@ -195,6 +210,20 @@ mod tests {
 		backend.write(&path, b"{}").unwrap();
 
 		assert_eq!(fs::read(&path).unwrap(), b"{}");
+		fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn write_preserves_existing_line_endings_when_text_is_equivalent() {
+		let root = std::env::temp_dir().join(format!("argon-vfs-line-endings-{}", Uuid::new_v4()));
+		let path = root.join("Script.luau");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(&path, b"local x = 1\r\nreturn x\r\n").unwrap();
+
+		let mut backend = StdBackend::new(false);
+		backend.write(&path, b"local x = 1\nreturn x\n").unwrap();
+
+		assert_eq!(fs::read(&path).unwrap(), b"local x = 1\r\nreturn x\r\n");
 		fs::remove_dir_all(root).unwrap();
 	}
 }

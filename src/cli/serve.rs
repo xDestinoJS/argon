@@ -112,6 +112,17 @@ impl Serve {
 			}
 		}
 
+		let removed_project_metadata = data::cleanup_project_owned_metadata(&project)?;
+		if !removed_project_metadata.is_empty() {
+			argon_info!(
+				"Removed {} redundant project-root metadata file(s)",
+				removed_project_metadata.len().to_string().bold()
+			);
+			for path in removed_project_metadata {
+				debug!("Removed redundant project-root metadata at {}", path.display());
+			}
+		}
+
 		let use_wally = config.use_wally || (config.detect_project && project.is_wally());
 		let use_ts = self.ts || config.ts_mode || (config.detect_project && project.is_ts());
 

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.121] - 2026-08-15
+
+### Added
+
+- Add a throttled plugin action for pushing the complete managed Studio hierarchy to disk with visible progress.
+
+### Fixed
+
+- Persist complete supported property snapshots for new and manually pushed instances, including Part appearance and ParticleEmitter texture, sequence, range, and rotation properties.
+- Ignore deprecated, non-serializing, binary, and shared-string properties without aborting the rest of an instance snapshot.
+- Prevent `$path` project mounts from creating identity-only `init.meta.json` files and clean up existing redundant mount metadata on startup.
+- Avoid rewriting unchanged files, including scripts whose only difference is line-ending style.
+
 ## [2.0.120] - 2026-08-14
 
 ### Added

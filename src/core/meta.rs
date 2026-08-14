@@ -488,6 +488,9 @@ pub struct Meta {
 	pub original_name: Option<String>,
 	/// Custom Mesh Part source path
 	pub mesh_source: Option<String>,
+	/// Instance is declared by the project tree and must not create metadata
+	/// beside its `$path` merely to persist Argon's private identity.
+	pub project_owned: bool,
 }
 
 impl Meta {
@@ -500,6 +503,7 @@ impl Meta {
 			keep_unknowns: false,
 			original_name: None,
 			mesh_source: None,
+			project_owned: false,
 		}
 	}
 
@@ -553,6 +557,11 @@ impl Meta {
 		self
 	}
 
+	pub fn with_project_owned(mut self, project_owned: bool) -> Self {
+		self.project_owned = project_owned;
+		self
+	}
+
 	// Overwriting meta fields
 
 	pub fn set_source<S: Into<Source>>(&mut self, source: S) {
@@ -573,5 +582,9 @@ impl Meta {
 
 	pub fn set_mesh_source(&mut self, mesh_source: Option<String>) {
 		self.mesh_source = mesh_source;
+	}
+
+	pub fn set_project_owned(&mut self, project_owned: bool) {
+		self.project_owned = project_owned;
 	}
 }

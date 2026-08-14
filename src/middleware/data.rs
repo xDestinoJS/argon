@@ -55,10 +55,46 @@ fn is_redundant_script_metadata(contents: &str) -> bool {
 	};
 
 	properties.len() == 1
-		&& matches!(
-			properties.get("Attributes"),
-			Some(serde_json::Value::Object(attributes)) if attributes.is_empty()
-		)
+		&& matches!(properties.get("Attributes"), Some(serde_json::Value::Object(attributes))
+			if attributes.is_empty()
+				|| (attributes.len() == 1 && attributes.contains_key("ArgonId")))
+}
+
+fn is_project_owned_identity_metadata(contents: &str, expected_class: &str) -> bool {
+	let Ok(serde_json::Value::Object(root)) = serde_json::from_str(contents) else {
+		return false;
+	};
+
+	if root
+		.keys()
+		.any(|key| !matches!(key.as_str(), "className" | "properties"))
+	{
+		return false;
+	}
+
+	if let Some(class_name) = root.get("className") {
+		if class_name.as_str() != Some(expected_class) {
+			return false;
+		}
+	}
+
+	match root.get("properties") {
+		None => root.contains_key("className"),
+		Some(serde_json::Value::Object(properties)) => {
+			if properties.keys().any(|key| key != "Attributes") {
+				return false;
+			}
+
+			match properties.get("Attributes") {
+				None => true,
+				Some(serde_json::Value::Object(attributes)) => {
+					attributes.is_empty() || (attributes.len() == 1 && attributes.contains_key("ArgonId"))
+				}
+				_ => false,
+			}
+		}
+		_ => false,
+	}
 }
 
 fn has_matching_script(meta_path: &Path) -> bool {
@@ -197,6 +233,61 @@ pub fn cleanup_redundant_script_metadata(project: &Project) -> Result<Vec<PathBu
 	Ok(removed)
 }
 
+/// Remove identity-only `init.meta.json` files located exactly at `$path`
+/// directory roots. These instances are declared by the project tree, so the
+/// metadata is redundant and can otherwise turn a mount into a phantom Folder.
+pub fn cleanup_project_owned_metadata(project: &Project) -> Result<Vec<PathBuf>> {
+	fn collect(node: &ProjectNode, name: &str, workspace: &Path, roots: &mut Vec<(PathBuf, String)>) {
+		if let Some(source) = &node.path {
+			let source = if source.path().is_absolute() {
+				source.path().to_owned()
+			} else {
+				workspace.join(source.path())
+			}
+			.clean();
+
+			if source.starts_with(workspace) && source.is_dir() {
+				let class = node.class_name.map(|class| class.to_string()).unwrap_or_else(|| {
+					if util::is_service(name) {
+						name.to_owned()
+					} else {
+						"Folder".to_owned()
+					}
+				});
+				roots.push((source, class));
+			}
+		}
+
+		for (child_name, child) in &node.tree {
+			collect(child, child_name, workspace, roots);
+		}
+	}
+
+	let workspace = project.workspace_dir.clean();
+	let mut roots = Vec::new();
+	collect(&project.node, &project.name, &workspace, &mut roots);
+
+	let mut removed = Vec::new();
+	for (root, expected_class) in roots {
+		let meta_path = root.join("init.meta.json");
+		if !meta_path.is_file() {
+			continue;
+		}
+
+		let contents = fs::read_to_string(&meta_path)
+			.with_context(|| format!("Failed to inspect project-owned metadata at {}", meta_path.display()))?;
+		if is_project_owned_identity_metadata(&contents, &expected_class) {
+			fs::remove_file(&meta_path)
+				.with_context(|| format!("Failed to remove project-owned metadata at {}", meta_path.display()))?;
+			removed.push(meta_path);
+		}
+	}
+
+	removed.sort();
+	removed.dedup();
+	Ok(removed)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Data {
@@ -256,7 +347,7 @@ pub fn read_data(path: &Path, class: Option<&str>, vfs: &Vfs) -> Result<DataSnap
 
 	// Resolve properties
 	for (property, value) in data.properties {
-		if matches!(property.as_str(), "CanvasPosition" | "FormFactor" | "Formfactor") {
+		if !util::is_persistent_property(&class, &property) {
 			continue;
 		}
 
@@ -335,7 +426,8 @@ pub fn write_data<'a>(
 	let properties: BTreeMap<Ustr, UnresolvedValue> = properties
 		.iter()
 		.filter(|(property, variant)| {
-			!matches!(property.as_str(), "CanvasPosition" | "FormFactor" | "Formfactor")
+			util::is_persistent_property(class, property)
+				&& !matches!(variant, Variant::BinaryString(_) | Variant::SharedString(_))
 				&& !matches!(variant, Variant::Ref(reference) if !reference.is_some())
 				&& !(has_file
 					&& util::is_script(class)
@@ -516,7 +608,7 @@ mod tests {
 		fs::write(src.join("Client.client.luau"), "print('client')").unwrap();
 		fs::write(
 			src.join("Client.meta.json"),
-			"{\n  \"properties\": {\n    \"Attributes\": {}\n  }\n}",
+			"{\n  \"properties\": {\n    \"Attributes\": {\"ArgonId\": \"0123456789abcdef0123456789abcdef\"}\n  }\n}",
 		)
 		.unwrap();
 		fs::write(legacy.join(".src.server.lua"), "print('legacy')").unwrap();
@@ -546,6 +638,34 @@ mod tests {
 		assert!(src.join("Meaningful.meta.json").exists());
 		assert!(src.join("NonEmpty.meta.json").exists());
 		assert!(src.join("Orphan.meta.json").exists());
+
+		fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn startup_cleanup_removes_only_identity_metadata_at_project_mount_roots() {
+		let root = std::env::temp_dir().join(format!("argon-project-root-meta-{}", Uuid::new_v4()));
+		let client = root.join("src/client");
+		let studio_folder = client.join("StudioFolder");
+		fs::create_dir_all(&studio_folder).unwrap();
+
+		let project_path = root.join("default.project.json");
+		fs::write(
+			&project_path,
+			r#"{"name":"test","tree":{"$className":"DataModel","StarterPlayer":{"StarterPlayerScripts":{"Client":{"$path":"src/client"}}}}}"#,
+		)
+		.unwrap();
+
+		let identity = r#"{"properties":{"Attributes":{"ArgonId":"0123456789abcdef0123456789abcdef"}}}"#;
+		fs::write(client.join("init.meta.json"), identity).unwrap();
+		fs::write(studio_folder.join("init.meta.json"), identity).unwrap();
+
+		let project = Project::load(&project_path).unwrap();
+		let removed = cleanup_project_owned_metadata(&project).unwrap();
+
+		assert_eq!(removed, vec![client.join("init.meta.json")]);
+		assert!(!client.join("init.meta.json").exists());
+		assert!(studio_folder.join("init.meta.json").exists());
 
 		fs::remove_dir_all(root).unwrap();
 	}

@@ -5,7 +5,7 @@ use path_clean::PathClean;
 use rbx_dom_weak::{types::Tags, ustr, HashMapExt, UstrMap};
 use std::path::{Path, PathBuf};
 
-use super::new_snapshot;
+use super::{data, new_snapshot};
 use crate::{
 	argon_warn,
 	config::Config,
@@ -31,6 +31,7 @@ pub fn read_project(path: &Path, vfs: &Vfs) -> Result<Snapshot> {
 	} else {
 		None
 	};
+	data::cleanup_project_owned_metadata(&project)?;
 
 	let meta = Meta::from_project(&project);
 	let mut snapshot = new_snapshot_node(&project.name, path, project.node, NodePath::new(), &meta.context, vfs)?;
@@ -178,6 +179,7 @@ pub fn new_snapshot_node(
 	} else {
 		String::from("Folder")
 	};
+	let project_owned = node.path.is_some();
 
 	let properties = {
 		let mut properties = UstrMap::new();
@@ -224,7 +226,8 @@ pub fn new_snapshot_node(
 	let mut meta = Meta::new()
 		.with_source(Source::project(name, path, node.clone(), node_path.clone()))
 		.with_context(context)
-		.with_keep_unknowns(node.keep_unknowns.unwrap_or_else(|| util::is_service(&class)));
+		.with_keep_unknowns(node.keep_unknowns.unwrap_or_else(|| util::is_service(&class)))
+		.with_project_owned(project_owned);
 
 	if class == "MeshPart" {
 		meta.set_mesh_source(helpers::save_mesh(&properties));
@@ -272,6 +275,11 @@ pub fn new_snapshot_node(
 			);
 		}
 	}
+
+	// `new_snapshot` above supplies metadata for the filesystem object. The
+	// outer project node still owns this instance, so retain that distinction
+	// after merging the two snapshots.
+	snapshot.meta.set_project_owned(project_owned);
 
 	for (node_name, node) in node.tree {
 		let node_path = node_path.join(&node_name);

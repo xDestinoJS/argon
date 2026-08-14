@@ -5,7 +5,7 @@ use env_logger::WriteStyle;
 use json_formatter::JsonFormatter;
 use log::LevelFilter;
 use rbx_dom_weak::types::Variant;
-use rbx_reflection::{ClassTag, ReflectionDatabase};
+use rbx_reflection::{ClassTag, PropertyKind, PropertySerialization, PropertyTag, ReflectionDatabase};
 use roblox_install::RobloxStudio;
 use serde::Serialize;
 use std::{env, path::PathBuf, process::Command};
@@ -179,4 +179,44 @@ pub fn get_reflection_database() -> &'static ReflectionDatabase<'static> {
 		.ok()
 		.flatten()
 		.unwrap_or_else(rbx_reflection_database::get_bundled)
+}
+
+/// Whether a Roblox property represents persistent, non-binary instance data.
+/// Unknown properties remain allowed for forward compatibility with newer
+/// Studio builds than Argon's bundled reflection database.
+pub fn is_persistent_property(class_name: &str, property_name: &str) -> bool {
+	if matches!(property_name, "CanvasPosition" | "FormFactor" | "Formfactor") {
+		return false;
+	}
+
+	let database = get_reflection_database();
+	let mut current_class = class_name;
+	loop {
+		let Some(class) = database.classes.get(current_class) else {
+			return true;
+		};
+
+		if let Some(property) = class.properties.get(property_name) {
+			if property.tags.contains(&PropertyTag::Deprecated) {
+				return false;
+			}
+			if matches!(
+				property.data_type.ty(),
+				rbx_dom_weak::types::VariantType::BinaryString | rbx_dom_weak::types::VariantType::SharedString
+			) {
+				return false;
+			}
+			return matches!(
+				&property.kind,
+				PropertyKind::Canonical {
+					serialization: PropertySerialization::Serializes | PropertySerialization::SerializesAs(_)
+				}
+			);
+		}
+
+		let Some(superclass) = class.superclass.as_deref() else {
+			return true;
+		};
+		current_class = superclass;
+	}
 }

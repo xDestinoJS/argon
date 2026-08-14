@@ -150,8 +150,9 @@ pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> P
 	} else {
 		properties
 			.into_iter()
-			.filter(|(property, _)| {
+			.filter(|(property, variant)| {
 				!matches!(property.as_str(), "CanvasPosition" | "FormFactor" | "Formfactor")
+					&& !matches!(variant, Variant::BinaryString(_) | Variant::SharedString(_))
 					&& !filter.matches_property(property)
 			})
 			.collect()
@@ -161,7 +162,11 @@ pub fn validate_properties(properties: Properties, filter: &SyncbackFilter) -> P
 pub fn serialize_properties(class: &str, properties: Properties) -> UstrMap<UnresolvedValue> {
 	properties
 		.iter()
-		.filter(|(_, variant)| !matches!(variant, Variant::Ref(reference) if !reference.is_some()))
+		.filter(|(property, variant)| {
+			crate::util::is_persistent_property(class, property)
+				&& !matches!(variant, Variant::BinaryString(_) | Variant::SharedString(_))
+				&& !matches!(variant, Variant::Ref(reference) if !reference.is_some())
+		})
 		.map(|(property, variant)| {
 			(
 				*property,
