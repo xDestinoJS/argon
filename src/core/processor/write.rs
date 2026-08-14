@@ -407,6 +407,17 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 		data_path
 	}
 
+	fn remove_empty_rename_leftover(path: &Path, vfs: &Vfs) {
+		// A directory rename should move the directory itself. If Windows or a
+		// previous partial sync leaves the old source behind, remove it only when
+		// it is demonstrably empty; this prevents it being re-imported as Folder.
+		if vfs.exists(path) && vfs.is_dir(path) && vfs.read_dir(path).is_ok_and(|entries| entries.is_empty()) {
+			if let Err(err) = vfs.remove(path) {
+				warn!("Failed to remove empty rename leftover {}: {err}", path.display());
+			}
+		}
+	}
+
 	fn update_non_project_properties(
 		path: &Path,
 		properties: Properties,
@@ -530,6 +541,7 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 						}
 
 						vfs.rename(&old_path, &new_path)?;
+						remove_empty_rename_leftover(&old_path, vfs);
 					}
 				} else {
 					for mut entry in meta.source.relevant_mut() {

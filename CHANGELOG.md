@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.116] - 2026-08-14
+
+### Fixed
+
+- Match renamed, same-class instances without prior Argon IDs by a unique serialized-property signature instead of presenting them as additions and removals.
+- Remove an empty directory left at the exact old path after a directory rename so it cannot return to Studio as a plain `Folder`.
+
 ## [2.0.115] - 2026-08-13
 
 ### Fixed
