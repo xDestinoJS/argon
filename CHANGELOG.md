@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.117] - 2026-08-14
+
+### Fixed
+
+- Bundle the plugin changes that persist hydration-created Argon IDs and emit rename updates after property-based identity reconciliation.
+
 ## [2.0.116] - 2026-08-14
 
 ### Fixed
