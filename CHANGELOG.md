@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Prevent `$path` project mounts from creating identity-only `init.meta.json` files and clean up existing redundant mount metadata on startup.
 - Avoid rewriting unchanged files, including scripts whose only difference is line-ending style.
 - Install the plugin bundled with this fork instead of replacing it with the unrelated upstream plugin release.
+- Preserve the complete existing property map when reconnect backfills a missing Argon ID.
 
 ## [2.0.120] - 2026-08-14
 
