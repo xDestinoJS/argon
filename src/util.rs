@@ -220,3 +220,20 @@ pub fn is_persistent_property(class_name: &str, property_name: &str) -> bool {
 		current_class = superclass;
 	}
 }
+
+#[cfg(test)]
+mod persistent_property_tests {
+	use super::is_persistent_property;
+
+	#[test]
+	fn particle_emitter_properties_are_persistent() {
+		for property in [
+			"Texture", "Color", "Size", "Speed", "Lifetime", "Rotation", "RotSpeed", "Rate", "Enabled",
+		] {
+			assert!(
+				is_persistent_property("ParticleEmitter", property),
+				"ParticleEmitter.{property} must be persisted"
+			);
+		}
+	}
+}

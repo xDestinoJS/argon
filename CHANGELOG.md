@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.124] - 2026-08-15
+
+### Fixed
+
+- Preserve complete Studio properties when an identity-only update arrives.
+- Restore responsive reconnect pacing while repairing live references.
+- Recover rich local Studio state instead of applying identity-only metadata over it.
+
 ## [2.0.123] - 2026-08-15
 
 ### Fixed

@@ -1,7 +1,7 @@
 use anyhow::{Context as AnyhowContext, Result};
 use log::{error, trace, warn};
 use path_clean::PathClean;
-use rbx_dom_weak::{types::Ref, Instance, Ustr};
+use rbx_dom_weak::{types::Ref, ustr, Instance, Ustr};
 use std::path::{Path, PathBuf};
 
 use crate::{
@@ -33,6 +33,18 @@ macro_rules! filter_warn {
 			$id
 		);
 	};
+}
+
+fn preserve_existing_properties_for_identity_update(properties: &mut Properties, existing: &Properties) {
+	if properties.len() != 1 || !properties.contains_key(&ustr("Attributes")) {
+		return;
+	}
+
+	for (property, value) in existing {
+		if *property != ustr("Attributes") {
+			properties.entry(*property).or_insert_with(|| value.clone());
+		}
+	}
 }
 
 pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
@@ -393,6 +405,16 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 		return Ok(());
 	};
 
+	// Argon sends an attribute-only update while repairing/persisting an
+	// instance identity. Updates normally replace the serialized property map
+	// so resetting a property to its Roblox default removes stale disk state,
+	// but an identity patch must never erase unrelated properties that are
+	// already persisted for the instance.
+	let mut snapshot = snapshot;
+	if let Some(properties) = snapshot.properties.as_mut() {
+		preserve_existing_properties_for_identity_update(properties, &instance.properties);
+	}
+
 	fn locate_instance_data(name: &str, path: &Path, meta: &Meta, vfs: &Vfs) -> Option<PathBuf> {
 		let data_path = if let Some(data) = meta.source.get_data() {
 			Some(data.path().to_owned())
@@ -740,4 +762,29 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 	tree.remove_instance(id);
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::preserve_existing_properties_for_identity_update;
+	use crate::Properties;
+	use rbx_dom_weak::{
+		types::{Content, Variant},
+		ustr,
+	};
+
+	#[test]
+	fn identity_only_update_preserves_existing_properties() {
+		let mut incoming = Properties::default();
+		incoming.insert(ustr("Attributes"), Variant::Attributes(Default::default()));
+
+		let mut existing = Properties::default();
+		existing.insert(ustr("Texture"), Variant::Content(Content::from("rbxasset://smoke")));
+		existing.insert(ustr("Rate"), Variant::Float32(20.0));
+
+		preserve_existing_properties_for_identity_update(&mut incoming, &existing);
+
+		assert!(incoming.contains_key(&ustr("Texture")));
+		assert!(incoming.contains_key(&ustr("Rate")));
+	}
 }
