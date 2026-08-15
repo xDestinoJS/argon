@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.123] - 2026-08-15
+
+### Fixed
+
+- Repair missing reference-target identities from live Studio references before reconnect diffs are shown.
+- Eliminate repeated full-DataModel scans for unresolved managed references and yield throughout property-heavy startup work.
+
 ## [2.0.122] - 2026-08-15
 
 ### Fixed
