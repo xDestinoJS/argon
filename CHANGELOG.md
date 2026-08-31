@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.142] - 2026-08-31
+
+### Fixed
+
+- Publish the matching server build for the plugin fix that preserves final Toolbox-model placement transforms during debounced syncback.
+
 ## [2.0.141] - 2026-08-31
 
 ### Fixed
