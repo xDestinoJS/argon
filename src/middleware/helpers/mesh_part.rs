@@ -14,13 +14,7 @@ use std::{
 
 use crate::{ext::PathExt, util, Properties};
 
-const CUSTOM_MESH_PART_PROPERTIES: [&str; 5] = [
-	"MeshId",
-	"MeshContent",
-	"TextureID",
-	"TextureContent",
-	"InitialSize",
-];
+const CUSTOM_MESH_PART_PROPERTIES: [&str; 5] = ["MeshId", "MeshContent", "TextureID", "TextureContent", "InitialSize"];
 
 static INDEX: RwLock<u32> = RwLock::new(0);
 

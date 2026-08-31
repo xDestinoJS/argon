@@ -41,7 +41,9 @@ impl Tree {
 		tree.insert_meta(root_ref, snapshot.meta);
 
 		for child in snapshot.children {
-			tree.insert_instance_recursive(child, root_ref);
+			if !crate::constants::is_ignored_class(&child.class) {
+				tree.insert_instance_recursive(child, root_ref);
+			}
 		}
 
 		tree
@@ -75,7 +77,9 @@ impl Tree {
 		self.insert_meta(inserted_id, snapshot.meta);
 
 		for child in snapshot.children {
-			self.insert_instance_recursive(child, inserted_id);
+			if !crate::constants::is_ignored_class(&child.class) {
+				self.insert_instance_recursive(child, inserted_id);
+			}
 		}
 
 		inserted_id
@@ -261,7 +265,7 @@ impl Tree {
 	}
 }
 
-fn persisted_argon_id(snapshot: &Snapshot) -> Option<Ref> {
+pub(crate) fn persisted_argon_id(snapshot: &Snapshot) -> Option<Ref> {
 	let Variant::Attributes(attributes) = snapshot.properties.get(&ustr("Attributes"))? else {
 		return None;
 	};
@@ -280,4 +284,23 @@ fn persisted_argon_id(snapshot: &Snapshot) -> Option<Ref> {
 	}
 
 	normalized.parse::<Ref>().ok().filter(Ref::is_some)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Tree;
+	use crate::core::snapshot::Snapshot;
+
+	#[test]
+	fn ignored_classes_are_pruned_from_nested_snapshots() {
+		let snapshot = Snapshot::new().with_class("DataModel").with_children(vec![
+			Snapshot::new().with_name("Legacy joint").with_class("Snap"),
+			Snapshot::new().with_name("Kept part").with_class("Part"),
+		]);
+
+		let tree = Tree::new(snapshot);
+		let children = tree.root().children();
+		assert_eq!(children.len(), 1);
+		assert_eq!(tree.get_instance(children[0]).unwrap().class, "Part");
+	}
 }

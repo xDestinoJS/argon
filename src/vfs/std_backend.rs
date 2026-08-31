@@ -1,12 +1,74 @@
 use crossbeam_channel::Receiver;
 use std::{
 	fs,
+	fs::OpenOptions,
+	io::Write,
 	io::{Error, Result},
 	path::{Path, PathBuf},
 };
+use uuid::Uuid;
 
-use super::{debouncer::VfsDebouncer, VfsBackend, VfsEvent};
+use super::{debouncer::VfsDebouncer, VfsBackend, VfsEvent, VfsPathKind};
 use crate::config::Config;
+
+fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
+	let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("argon-data");
+	let temp_path = path.with_file_name(format!(".{file_name}.{}.tmp", Uuid::new_v4().simple()));
+
+	let result = (|| -> Result<()> {
+		let mut temp = OpenOptions::new().create_new(true).write(true).open(&temp_path)?;
+		temp.write_all(contents)?;
+		temp.sync_all()?;
+		drop(temp);
+
+		for attempt in 0..5 {
+			match atomic_replace(&temp_path, path) {
+				Ok(()) => return Ok(()),
+				Err(err) if attempt < 4 => {
+					std::thread::sleep(std::time::Duration::from_millis(2));
+					if !temp_path.exists() {
+						return Err(err);
+					}
+				}
+				Err(err) => return Err(err),
+			}
+		}
+
+		unreachable!()
+	})();
+
+	if result.is_err() {
+		let _ = fs::remove_file(&temp_path);
+	}
+	result
+}
+
+#[cfg(windows)]
+fn atomic_replace(from: &Path, to: &Path) -> Result<()> {
+	use std::os::windows::ffi::OsStrExt;
+	use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+
+	let from = from.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+	let to = to.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+	let success = unsafe {
+		MoveFileExW(
+			from.as_ptr(),
+			to.as_ptr(),
+			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+		)
+	};
+
+	if success == 0 {
+		Err(Error::last_os_error())
+	} else {
+		Ok(())
+	}
+}
+
+#[cfg(not(windows))]
+fn atomic_replace(from: &Path, to: &Path) -> Result<()> {
+	fs::rename(from, to)
+}
 
 pub struct StdBackend {
 	watching: bool,
@@ -69,21 +131,7 @@ impl VfsBackend for StdBackend {
 			fs::create_dir_all(parent)?;
 		}
 
-		for i in 0..5 {
-			match fs::write(path, contents) {
-				Ok(_) => {
-					self.debouncer.record_syncback_path(path);
-					return Ok(());
-				}
-				Err(err) => {
-					if i == 4 {
-						return Err(err);
-					}
-					std::thread::sleep(std::time::Duration::from_millis(2));
-				}
-			}
-		}
-		let result = fs::write(path, contents);
+		let result = atomic_write(path, contents);
 		if result.is_ok() {
 			self.debouncer.record_syncback_path(path);
 		}
@@ -148,6 +196,14 @@ impl VfsBackend for StdBackend {
 
 	fn is_file(&self, path: &Path) -> bool {
 		path.is_file()
+	}
+
+	fn path_kind(&self, path: &Path) -> VfsPathKind {
+		match fs::metadata(path) {
+			Ok(metadata) if metadata.is_file() => VfsPathKind::File,
+			Ok(metadata) if metadata.is_dir() => VfsPathKind::Directory,
+			_ => VfsPathKind::Missing,
+		}
 	}
 
 	fn watch(&mut self, path: &Path, recursive: bool) -> Result<()> {

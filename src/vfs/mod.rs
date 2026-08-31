@@ -19,6 +19,13 @@ pub enum VfsEvent {
 	Write(PathBuf),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VfsPathKind {
+	Missing,
+	File,
+	Directory,
+}
+
 pub trait VfsBackend: Send {
 	fn read(&self, path: &Path) -> Result<Vec<u8>>;
 	fn read_to_string(&self, path: &Path) -> Result<String>;
@@ -32,6 +39,7 @@ pub trait VfsBackend: Send {
 	fn exists(&self, path: &Path) -> bool;
 	fn is_dir(&self, path: &Path) -> bool;
 	fn is_file(&self, path: &Path) -> bool;
+	fn path_kind(&self, path: &Path) -> VfsPathKind;
 
 	fn watch(&mut self, path: &Path, recursive: bool) -> Result<()>;
 	fn unwatch(&mut self, path: &Path) -> Result<()>;
@@ -104,6 +112,10 @@ impl Vfs {
 
 	pub fn is_file(&self, path: &Path) -> bool {
 		lock!(self.inner).is_file(path)
+	}
+
+	pub fn path_kind(&self, path: &Path) -> VfsPathKind {
+		lock!(self.inner).path_kind(path)
 	}
 
 	pub fn watch(&self, path: &Path, recursive: bool) -> Result<()> {

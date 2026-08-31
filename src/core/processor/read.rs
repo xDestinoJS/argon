@@ -8,6 +8,7 @@ use crate::{
 		changes::Changes,
 		meta::SourceKind,
 		snapshot::{Snapshot, UpdatedSnapshot},
+		tree::persisted_argon_id,
 		tree::Tree,
 	},
 	middleware::{new_snapshot, project::new_snapshot_node},
@@ -78,7 +79,9 @@ pub fn process_changes(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Option<Changes> {
 	// Handle regular removals
 	} else {
 		let current_meta = tree.get_meta(id);
-		let path_exists = current_meta.and_then(|m| m.source.get().path()).map_or(false, |p| vfs.exists(p));
+		let path_exists = current_meta
+			.and_then(|m| m.source.get().path())
+			.map_or(false, |p| vfs.exists(p));
 		if !path_exists {
 			tree.remove_instance(id);
 			changes.remove(id);
@@ -154,22 +157,27 @@ fn process_child_changes(id: Ref, mut snapshot: Snapshot, changes: &mut Changes,
 			continue;
 		};
 
-		let found_child = snapshot.children.iter_mut().enumerate().find(|(index, child)| {
-			if hydrated[*index] {
-				return false;
-			}
-
-			let child_orig_name = child.meta.original_name.as_deref().unwrap_or(&child.name);
-			if (child.name == instance.name || child_orig_name == instance.name) && child.class == instance.class {
-				hydrated[*index] = true;
-				return true;
-			}
-
-			false
+		let persisted_index = snapshot.children.iter().enumerate().find_map(|(index, child)| {
+			(!hydrated[index] && child.class == instance.class && persisted_argon_id(child) == Some(child_id))
+				.then_some(index)
 		});
+		let fallback_index = persisted_index.or_else(|| {
+			snapshot.children.iter().enumerate().find_map(|(index, child)| {
+				if hydrated[index] {
+					return None;
+				}
 
-		if let Some((_, child)) = found_child {
-			child.set_id(child_id);
+				let child_orig_name = child.meta.original_name.as_deref().unwrap_or(&child.name);
+				((child.name == instance.name || child_orig_name == instance.name) && child.class == instance.class)
+					.then_some(index)
+			})
+		});
+		if let Some(index) = fallback_index {
+			hydrated[index] = true;
+		}
+
+		if let Some(index) = fallback_index {
+			snapshot.children[index].set_id(child_id);
 		} else {
 			tree.remove_instance(child_id);
 			changes.remove(child_id);
@@ -224,9 +232,7 @@ mod tests {
 		vfs.create_dir(project_path).unwrap();
 		vfs.create_dir(&child_path).unwrap();
 
-		let snapshot = new_snapshot(project_path, &Context::default(), &vfs)
-			.unwrap()
-			.unwrap();
+		let snapshot = new_snapshot(project_path, &Context::default(), &vfs).unwrap().unwrap();
 		let mut tree = Tree::new(snapshot);
 		let root_ref = tree.root_ref();
 

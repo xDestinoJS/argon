@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "argon-rbx"
-version = "2.0.124"
+version = "2.0.136"
 dependencies = [
  "actix-msgpack",
  "actix-web",
@@ -406,6 +406,7 @@ dependencies = [
  "trash",
  "uuid",
  "whoami",
+ "windows-sys 0.61.1",
  "winsafe",
  "yaml2lua",
 ]

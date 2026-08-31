@@ -1,15 +1,17 @@
-use actix_web::{get, web::Data, HttpRequest, HttpResponse, Error};
+use actix_web::{get, web::Data, Error, HttpRequest, HttpResponse};
 use actix_ws::AggregatedMessage;
 use futures_util::stream::StreamExt;
 use log::trace;
 use std::sync::Arc;
 
-use crate::{
-	core::{processor::WriteRequest, Core},
-};
+use crate::core::{processor::WriteRequest, Core};
 
 #[get("/ws")]
-pub async fn main(req: HttpRequest, stream: actix_web::web::Payload, core: Data<Arc<Core>>) -> Result<HttpResponse, Error> {
+pub async fn main(
+	req: HttpRequest,
+	stream: actix_web::web::Payload,
+	core: Data<Arc<Core>>,
+) -> Result<HttpResponse, Error> {
 	trace!("Received request: ws");
 
 	let (res, mut session, stream) = actix_ws::handle(&req, stream)?;
@@ -24,10 +26,7 @@ pub async fn main(req: HttpRequest, stream: actix_web::web::Payload, core: Data<
 	actix_web::rt::spawn(async move {
 		loop {
 			let core_task = core_send.clone();
-			let msg_res = actix_web::rt::task::spawn_blocking(move || {
-				core_task.queue().get_timeout(client_id)
-			})
-			.await;
+			let msg_res = actix_web::rt::task::spawn_blocking(move || core_task.queue().get_timeout(client_id)).await;
 
 			match msg_res {
 				Ok(Ok(message)) => {
@@ -56,13 +55,17 @@ pub async fn main(req: HttpRequest, stream: actix_web::web::Payload, core: Data<
 				AggregatedMessage::Binary(bytes) => {
 					if let Ok(mut write_req) = rmp_serde::from_slice::<WriteRequest>(&bytes) {
 						write_req.client_id = client_id;
-						core_recv.processor().write(write_req);
+						if let Err(err) = core_recv.processor().write(write_req) {
+							log::error!("Failed to durably queue WebSocket changes: {err:#}");
+						}
 					}
 				}
 				AggregatedMessage::Text(text) => {
 					if let Ok(mut write_req) = serde_json::from_str::<WriteRequest>(&text) {
 						write_req.client_id = client_id;
-						core_recv.processor().write(write_req);
+						if let Err(err) = core_recv.processor().write(write_req) {
+							log::error!("Failed to durably queue WebSocket changes: {err:#}");
+						}
 					}
 				}
 				AggregatedMessage::Ping(bytes) => {

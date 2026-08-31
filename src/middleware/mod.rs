@@ -8,7 +8,7 @@ use rbx_dom_weak::{
 use serde::{Deserialize, Serialize};
 use std::{
 	fmt::{self, Display, Formatter},
-	path::Path,
+	path::{Path, PathBuf},
 };
 
 use self::data::DataSnapshot;
@@ -20,7 +20,7 @@ use crate::{
 		snapshot::Snapshot,
 	},
 	ext::{PathExt, ResultExt},
-	vfs::Vfs,
+	vfs::{Vfs, VfsPathKind},
 	Properties,
 };
 
@@ -162,7 +162,15 @@ pub fn new_snapshot(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option<
 		return Ok(None);
 	}
 
-	if !vfs.exists(path) {
+	// Instance data is consumed by its owning file or directory. It can never
+	// produce a child instance of its own, so avoid a second metadata lookup and
+	// a full sync-rule pass for every init.meta.json in large Studio snapshots.
+	if context.is_instance_data_path(path) {
+		return Ok(None);
+	}
+
+	let path_kind = vfs.path_kind(path);
+	if path_kind == VfsPathKind::Missing {
 		trace!("Snapshot of {} not created: path does not exist", path.display());
 
 		vfs.unwatch(path)?;
@@ -172,8 +180,8 @@ pub fn new_snapshot(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option<
 
 	trace!("Creating snapshot of {}", path.display());
 
-	if vfs.is_file(path) {
-		if let Some(snapshot) = new_snapshot_file_child(path, context, vfs)? {
+	if path_kind == VfsPathKind::File {
+		if let Some(snapshot) = new_snapshot_file_child(path, context, vfs, None)? {
 			Ok(Some(snapshot))
 		} else if let Some(snapshot) = new_snapshot_file(path, context, vfs)? {
 			Ok(Some(snapshot))
@@ -182,13 +190,19 @@ pub fn new_snapshot(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option<
 			Ok(None)
 		}
 	} else {
-		for path in vfs.read_dir(path)? {
-			if let Some(snapshot) = new_snapshot_file_child(&path, context, vfs)? {
+		let entries = vfs
+			.read_dir(path)?
+			.into_iter()
+			.filter(|entry| !context.is_instance_data_path(entry))
+			.collect::<Vec<_>>();
+
+		for entry in &entries {
+			if let Some(snapshot) = new_snapshot_file_child(entry, context, vfs, Some(&entries))? {
 				return Ok(Some(snapshot));
 			}
 		}
 
-		new_snapshot_dir(path, context, vfs)
+		new_snapshot_dir(path, context, vfs, entries)
 	}
 }
 
@@ -209,8 +223,12 @@ fn new_snapshot_file(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option
 			return Ok(None);
 		}
 
-		if let Some(instance_data) = get_instance_data(&name, Some(&snapshot.class), path, context, vfs)? {
+		if let Some(instance_data) = get_instance_data(&name, Some(&snapshot.class), path, false, context, vfs)? {
 			snapshot.apply_data(instance_data);
+		}
+		if crate::constants::is_ignored_class(&snapshot.class) {
+			trace!("Snapshot of {} not created: class is ignored", path.display());
+			return Ok(None);
 		}
 
 		Ok(Some(snapshot))
@@ -221,7 +239,12 @@ fn new_snapshot_file(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option
 
 /// Create a snapshot of a directory that has a child source or data,
 /// example: `foo/bar/init.luau`
-fn new_snapshot_file_child(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option<Snapshot>> {
+fn new_snapshot_file_child(
+	path: &Path,
+	context: &Context,
+	vfs: &Vfs,
+	parent_entries: Option<&[PathBuf]>,
+) -> Result<Option<Snapshot>> {
 	if path.contains(&[".src.luau"]) || path.contains(&[".src.lua"]) {
 		argon_warn!(
 			"Your project uses legacy {} files which won't be supported in the next versions of Argon. \
@@ -244,21 +267,32 @@ fn new_snapshot_file_child(path: &Path, context: &Context, vfs: &Vfs) -> Result<
 			snapshot.meta.set_context(context);
 			snapshot.meta.set_source(Source::child_file(parent, path));
 
-			for entry in vfs.read_dir(parent)? {
-				if entry == path {
-					continue;
-				}
+			if let Some(instance_data) = get_instance_data(&name, Some(&snapshot.class), parent, true, context, vfs)? {
+				snapshot.apply_data(instance_data);
+			}
+			if crate::constants::is_ignored_class(&snapshot.class) {
+				trace!("Snapshot of {} not created: class is ignored", parent.display());
+				return Ok(None);
+			}
 
-				if let Some(child_snapshot) = new_snapshot(&entry, context, vfs)? {
-					snapshot.add_child(child_snapshot);
-				}
+			if let Some(entries) = parent_entries {
+				add_sibling_snapshots(&mut snapshot, path, entries.iter(), context, vfs)?;
+			} else {
+				let entries = vfs.read_dir(parent)?;
+				add_sibling_snapshots(&mut snapshot, path, entries.iter(), context, vfs)?;
 			}
 		} else if snapshot.class == "Folder" && snapshot.children.is_empty() {
 			return Ok(None);
 		}
 
-		if let Some(instance_data) = get_instance_data(&name, Some(&snapshot.class), parent, context, vfs)? {
-			snapshot.apply_data(instance_data);
+		if middleware == Middleware::Project {
+			if let Some(instance_data) = get_instance_data(&name, Some(&snapshot.class), parent, true, context, vfs)? {
+				snapshot.apply_data(instance_data);
+			}
+			if crate::constants::is_ignored_class(&snapshot.class) {
+				trace!("Snapshot of {} not created: class is ignored", parent.display());
+				return Ok(None);
+			}
 		}
 
 		Ok(Some(snapshot))
@@ -267,12 +301,43 @@ fn new_snapshot_file_child(path: &Path, context: &Context, vfs: &Vfs) -> Result<
 	}
 }
 
+fn add_sibling_snapshots<'a>(
+	snapshot: &mut Snapshot,
+	source_path: &Path,
+	entries: impl Iterator<Item = &'a PathBuf>,
+	context: &Context,
+	vfs: &Vfs,
+) -> Result<()> {
+	for entry in entries {
+		if entry == source_path {
+			continue;
+		}
+
+		if let Some(child_snapshot) = new_snapshot(entry, context, vfs)? {
+			snapshot.add_child(child_snapshot);
+		}
+	}
+
+	Ok(())
+}
+
 /// Create snapshot of a directory,
 /// example: `foo/bar`
-fn new_snapshot_dir(path: &Path, context: &Context, vfs: &Vfs) -> Result<Option<Snapshot>> {
-	let mut snapshot = dir::read_dir(path, context, vfs)?;
+fn new_snapshot_dir(path: &Path, context: &Context, vfs: &Vfs, entries: Vec<PathBuf>) -> Result<Option<Snapshot>> {
+	let name = path.get_name();
+	let instance_data = get_instance_data(name, None, path, true, context, vfs)?;
+	if instance_data
+		.as_ref()
+		.and_then(|data| data.class.as_deref())
+		.is_some_and(crate::constants::is_ignored_class)
+	{
+		trace!("Snapshot of {} not created: class is ignored", path.display());
+		return Ok(None);
+	}
 
-	if let Some(instance_data) = get_instance_data(&snapshot.name, None, path, context, vfs)? {
+	let mut snapshot = dir::read_dir(path, context, vfs, entries)?;
+
+	if let Some(instance_data) = instance_data {
 		snapshot.apply_data(instance_data);
 	}
 
@@ -283,11 +348,12 @@ fn get_instance_data(
 	name: &str,
 	class: Option<&str>,
 	path: &Path,
+	is_dir: bool,
 	context: &Context,
 	vfs: &Vfs,
 ) -> Result<Option<DataSnapshot>> {
 	for sync_rule in context.sync_rules_of_type(&Middleware::InstanceData, false) {
-		if let Some(data_path) = sync_rule.locate(path, name, vfs.is_dir(path)) {
+		if let Some(data_path) = sync_rule.locate(path, name, is_dir) {
 			if vfs.exists(&data_path) {
 				let data = data::read_data(&data_path, class, vfs).with_desc(|| {
 					format!(
@@ -302,4 +368,29 @@ fn get_instance_data(
 	}
 
 	Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use super::new_snapshot;
+	use crate::{core::meta::Context, vfs::Vfs};
+
+	#[test]
+	fn deprecated_snap_directories_are_not_snapshotted() {
+		let vfs = Vfs::new_virtual();
+		let root = Path::new("project");
+		let snap = root.join("Snap");
+
+		vfs.create_dir(&snap).unwrap();
+		vfs.write(
+			&snap.join("init.meta.json"),
+			br#"{"className":"Snap","properties":{"Attributes":{"ArgonId":"0123456789abcdef0123456789abcdef"}}}"#,
+		)
+		.unwrap();
+
+		let snapshot = new_snapshot(root, &Context::default(), &vfs).unwrap().unwrap();
+		assert!(snapshot.children.is_empty());
+	}
 }

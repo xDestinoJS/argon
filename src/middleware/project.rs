@@ -157,6 +157,39 @@ mod tests {
 			assert_eq!(feature.path, Some(ProjectPath::Required(PathBuf::from(expected_path))));
 		}
 	}
+
+	#[test]
+	fn services_do_not_keep_unknown_children_by_default() {
+		let snapshot = new_snapshot_node(
+			"Workspace",
+			Path::new("default.project.json"),
+			ProjectNode::default(),
+			NodePath::new(),
+			&Context::default(),
+			&Vfs::new_virtual(),
+		)
+		.unwrap();
+
+		assert!(!snapshot.meta.keep_unknowns);
+	}
+
+	#[test]
+	fn services_can_explicitly_keep_unknown_children() {
+		let snapshot = new_snapshot_node(
+			"Workspace",
+			Path::new("default.project.json"),
+			ProjectNode {
+				keep_unknowns: Some(true),
+				..ProjectNode::default()
+			},
+			NodePath::new(),
+			&Context::default(),
+			&Vfs::new_virtual(),
+		)
+		.unwrap();
+
+		assert!(snapshot.meta.keep_unknowns);
+	}
 }
 
 #[profiling::function]
@@ -226,7 +259,7 @@ pub fn new_snapshot_node(
 	let mut meta = Meta::new()
 		.with_source(Source::project(name, path, node.clone(), node_path.clone()))
 		.with_context(context)
-		.with_keep_unknowns(node.keep_unknowns.unwrap_or_else(|| util::is_service(&class)))
+		.with_keep_unknowns(node.keep_unknowns.unwrap_or(false))
 		.with_project_owned(project_owned);
 
 	if class == "MeshPart" {

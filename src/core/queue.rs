@@ -260,7 +260,9 @@ mod tests {
 		queue.subscribe(10, "writer").unwrap();
 		queue.subscribe(11, "other client").unwrap();
 
-		queue.push_except(server::SyncChanges(crate::core::changes::Changes::new()), 10).unwrap();
+		queue
+			.push_except(server::SyncChanges(crate::core::changes::Changes::new()), 10)
+			.unwrap();
 
 		let queues = queue.queues.read().unwrap();
 		assert!(queues.get(&0).unwrap().receiver.try_recv().is_err());

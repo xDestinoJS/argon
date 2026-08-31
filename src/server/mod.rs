@@ -97,8 +97,6 @@ impl Server {
 				.into()
 			});
 
-
-
 			App::new()
 				.app_data(Data::new(core.clone()))
 				.app_data(msgpack_config)

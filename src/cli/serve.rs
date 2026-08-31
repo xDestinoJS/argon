@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use colored::Colorize;
 use log::{debug, info};
-use std::{path::PathBuf, process, sync::Arc, thread};
+use std::{path::PathBuf, process, sync::Arc, thread, time::Instant};
 
 use crate::{
 	argon_error, argon_info, argon_warn,
@@ -95,13 +95,20 @@ impl Serve {
 			);
 		}
 
+		let project_load_started = Instant::now();
 		let project = Project::load(&project_path)?;
+		debug!("Serve startup: project loaded in {:?}", project_load_started.elapsed());
 
 		if !project.is_place() {
 			bail!("Cannot serve non-place project!");
 		}
 
+		let script_cleanup_started = Instant::now();
 		let removed_metadata = data::cleanup_redundant_script_metadata(&project)?;
+		debug!(
+			"Serve startup: script metadata cleanup completed in {:?}",
+			script_cleanup_started.elapsed()
+		);
 		if !removed_metadata.is_empty() {
 			argon_info!(
 				"Removed {} redundant script metadata file(s)",
@@ -112,7 +119,12 @@ impl Serve {
 			}
 		}
 
+		let project_cleanup_started = Instant::now();
 		let removed_project_metadata = data::cleanup_project_owned_metadata(&project)?;
+		debug!(
+			"Serve startup: project metadata cleanup completed in {:?}",
+			project_cleanup_started.elapsed()
+		);
 		if !removed_project_metadata.is_empty() {
 			argon_info!(
 				"Removed {} redundant project-root metadata file(s)",
@@ -147,7 +159,9 @@ impl Serve {
 			}
 		}
 
+		let core_started = Instant::now();
 		let core = Core::new(project, true)?;
+		debug!("Serve startup: core initialized in {:?}", core_started.elapsed());
 		let host = self.host.unwrap_or(core.host().unwrap_or(config.host.clone()));
 		let mut port = self.port.unwrap_or(core.port().unwrap_or(config.port));
 

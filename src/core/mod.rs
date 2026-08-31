@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use log::trace;
+use log::{debug, trace};
 use rbx_dom_weak::{
 	types::{Ref, Variant},
 	Ustr,
@@ -11,6 +11,7 @@ use std::{
 	io::BufWriter,
 	path::{Path, PathBuf},
 	sync::{Arc, Mutex, MutexGuard},
+	time::Instant,
 };
 
 use self::{
@@ -54,33 +55,44 @@ impl Core {
 
 		trace!("Initializing VFS");
 
+		let vfs_started = Instant::now();
 		let vfs = Vfs::new(watch);
+		debug!("Core startup: VFS initialized in {:?}", vfs_started.elapsed());
 
 		trace!("Snapshotting root project");
 
 		let meta = Meta::from_project(&project);
+		let snapshot_started = Instant::now();
 		let snapshot = new_snapshot(&project.path, &meta.context, &vfs)?.expect(
 			"Failed to snapshot root project. \
 		Note that projects cannot be empty. \
 		If you are using custom sync rules make sure you have one with the `Project` type. \
 		Otherwise, this is a bug.",
 		);
+		debug!(
+			"Core startup: project snapshot built in {:?}",
+			snapshot_started.elapsed()
+		);
 
 		trace!("Building Tree and Queue");
 
 		let vfs = Arc::new(vfs);
+		let tree_started = Instant::now();
 		let tree = Arc::new(Mutex::new(Tree::new(snapshot)));
 		let queue = Arc::new(Queue::new());
+		debug!("Core startup: tree and queue built in {:?}", tree_started.elapsed());
 
 		trace!("Starting Processor");
 
 		let project = Arc::new(Mutex::new(project));
+		let processor_started = Instant::now();
 		let processor = Arc::new(Processor::new(
 			queue.clone(),
 			tree.clone(),
 			vfs.clone(),
 			project.clone(),
 		));
+		debug!("Core startup: processor started in {:?}", processor_started.elapsed());
 
 		trace!("Core initialized successfully!");
 
@@ -123,26 +135,21 @@ impl Core {
 
 	/// Create snapshot of the tree or a subtree
 	pub fn snapshot(&self, instance: Ref) -> Option<AddedSnapshot> {
-		// A full snapshot is requested when a Studio client connects. Re-read the
-		// project here so a missed watcher event cannot leave the reconnecting
-		// client with stale in-memory state.
-		if !instance.is_some() {
-			let mut tree = self.tree();
-			let root_ref = tree.root_ref();
-
-			if let Some(changes) = processor::read::process_changes(root_ref, &mut tree, &self._vfs) {
-				trace!("Reconciled {} disk changes before creating initial snapshot", changes.total());
-			}
-		}
-
 		let tree = self.tree();
 
 		fn walk(children: &[Ref], tree: &Tree) -> Vec<Snapshot> {
 			let mut snapshot_children = Vec::new();
 
 			for child in children {
-				let Some(meta) = tree.get_meta(*child) else { continue; };
-				let Some(child) = tree.get_instance(*child) else { continue; };
+				let Some(meta) = tree.get_meta(*child) else {
+					continue;
+				};
+				let Some(child) = tree.get_instance(*child) else {
+					continue;
+				};
+				if crate::constants::is_ignored_class(&child.class) {
+					continue;
+				}
 
 				let snapshot = Snapshot::new()
 					.with_id(child.referent())

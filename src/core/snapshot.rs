@@ -354,6 +354,8 @@ pub struct UpdatedSnapshot {
 	pub class: Option<Ustr>,
 	#[serde(default, deserialize_with = "deserialize_optional_properties")]
 	pub properties: Option<Properties>,
+	#[serde(rename = "partialProperties", default)]
+	pub partial_properties: bool,
 }
 
 impl UpdatedSnapshot {
@@ -364,6 +366,7 @@ impl UpdatedSnapshot {
 			class: None,
 			properties: None,
 			meta: None,
+			partial_properties: false,
 		}
 	}
 
@@ -419,6 +422,27 @@ mod tests {
 		let snapshot: UpdatedSnapshot = rmp_serde::from_slice(&encoded).unwrap();
 		let rotation = snapshot.properties.unwrap().remove(&ustr("Rotation")).unwrap();
 		assert_eq!(rotation, Variant::Float64(45.0));
+	}
+
+	#[test]
+	fn partial_properties_flag_deserializes_from_lua_camel_case() {
+		#[derive(Serialize)]
+		#[serde(rename_all = "camelCase")]
+		struct LuaPartialUpdatedSnapshot {
+			id: Ref,
+			properties: rmpv::Value,
+			partial_properties: bool,
+		}
+
+		let encoded = rmp_serde::to_vec_named(&LuaPartialUpdatedSnapshot {
+			id: Ref::new(),
+			properties: rmpv::Value::Map(Vec::new()),
+			partial_properties: true,
+		})
+		.unwrap();
+
+		let snapshot: UpdatedSnapshot = rmp_serde::from_slice(&encoded).unwrap();
+		assert!(snapshot.partial_properties);
 	}
 
 	#[test]

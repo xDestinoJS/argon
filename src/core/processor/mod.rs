@@ -4,6 +4,7 @@ use crossbeam_channel::{select, Sender};
 use log::{debug, error, info, trace, warn};
 use serde::Deserialize;
 use std::{
+	path::PathBuf,
 	sync::{Arc, Mutex},
 	thread::Builder,
 };
@@ -27,10 +28,14 @@ pub mod write;
 pub struct WriteRequest {
 	pub changes: Changes,
 	pub client_id: u32,
+	#[serde(skip)]
+	pub journal_entries: Vec<PathBuf>,
 }
 
 pub struct Processor {
 	writer: Sender<WriteRequest>,
+	journal: Arc<crate::core::journal::Journal>,
+	submission_lock: Mutex<()>,
 }
 
 impl Processor {
@@ -43,18 +48,27 @@ impl Processor {
 		if !recovered.is_empty() {
 			info!("Recovering {} change batches from crash journal..", recovered.len());
 			let mut tree_lock = lock!(tree);
-			for changes in recovered {
+			for (entry, changes) in recovered {
+				let mut recovered_successfully = true;
 				for id in changes.removals {
-					let _ = write::apply_removal(id, &mut tree_lock, &vfs);
+					recovered_successfully &= write::apply_removal(id, &mut tree_lock, &vfs).is_ok();
 				}
 				for snapshot in changes.additions {
-					let _ = write::apply_addition(snapshot, &mut tree_lock, &vfs);
+					recovered_successfully &= write::apply_addition(snapshot, &mut tree_lock, &vfs).is_ok();
 				}
 				for snapshot in changes.updates {
-					let _ = write::apply_update(snapshot, &mut tree_lock, &vfs);
+					recovered_successfully &= write::apply_update(snapshot, &mut tree_lock, &vfs).is_ok();
+				}
+				if recovered_successfully {
+					journal.complete(Some(&entry));
+				} else {
+					warn!(
+						"Crash journal batch could not be fully recovered; keeping {} for the next start",
+						entry.display()
+					);
+					break;
 				}
 			}
-			journal.clear();
 		}
 
 		let handler = Arc::new(Handler {
@@ -80,8 +94,12 @@ impl Processor {
 							handler.on_vfs_event(event?);
 						}
 						recv(client_receiver) -> request => {
+							let mut requests = vec![request?];
+							requests.extend(client_receiver.try_iter());
 							vfs.pause();
-							handler.on_client_event(request?);
+							if !handler.on_client_events(requests) {
+								anyhow::bail!("Durable Studio write failed; restart Argon to replay the retained journal");
+							}
 							vfs.resume();
 						}
 					}
@@ -89,11 +107,24 @@ impl Processor {
 			})
 			.unwrap();
 
-		Self { writer: sender }
+		Self {
+			writer: sender,
+			journal,
+			submission_lock: Mutex::new(()),
+		}
 	}
 
-	pub fn write(&self, request: WriteRequest) {
-		self.writer.send(request).unwrap();
+	pub fn write(&self, mut request: WriteRequest) -> Result<()> {
+		let _submission = self
+			.submission_lock
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+		if let Some(entry) = self.journal.append(&request.changes)? {
+			request.journal_entries.push(entry);
+		}
+		self.writer
+			.send(request)
+			.map_err(|err| anyhow::anyhow!("Failed to queue durable Studio changes: {err}"))
 	}
 }
 
@@ -106,6 +137,35 @@ struct Handler {
 }
 
 impl Handler {
+	fn on_client_events(&self, requests: Vec<WriteRequest>) -> bool {
+		let mut pending: Option<WriteRequest> = None;
+
+		for request in requests {
+			if let Some(current) = pending.as_mut() {
+				if current.client_id == request.client_id
+					&& current.changes.is_update_only()
+					&& request.changes.is_update_only()
+				{
+					current.changes.coalesce_updates(request.changes);
+					current.journal_entries.extend(request.journal_entries);
+					continue;
+				}
+			}
+
+			if let Some(current) = pending.replace(request) {
+				if !self.on_client_event(current) {
+					return false;
+				}
+			}
+		}
+
+		if let Some(current) = pending {
+			return self.on_client_event(current);
+		}
+
+		true
+	}
+
 	#[profiling::function]
 	fn on_vfs_event(&self, event: VfsEvent) {
 		profiling::start_frame!();
@@ -197,14 +257,13 @@ impl Handler {
 	}
 
 	#[profiling::function]
-	fn on_client_event(&self, request: WriteRequest) {
+	fn on_client_event(&self, request: WriteRequest) -> bool {
 		profiling::start_frame!();
 
+		let journal_entries = request.journal_entries;
 		let changes = request.changes;
 		let changes_for_other_clients = changes.clone();
 		let client_id = request.client_id;
-
-		let _ = self.journal.append(&changes);
 
 		trace!("Received client event: {:?} changes", changes.total());
 
@@ -256,14 +315,16 @@ impl Handler {
 			}
 		}();
 
-		// The journal protects against a process crash during this batch. If the
-		// process is still alive, never replay a partially applied batch later;
-		// doing so can resurrect moved instances at stale paths.
-		self.journal.clear();
-
+		let succeeded = result.is_ok();
 		match result {
 			Ok(()) => {
 				trace!("Changes applied successfully");
+				// Delete durable entries only after every filesystem operation in the
+				// combined batch succeeds. Failed or interrupted work is replayed on
+				// the next server start.
+				for entry in &journal_entries {
+					self.journal.complete(Some(entry));
+				}
 
 				// A Studio-originated change is already present in the originating
 				// place. Deliver it directly to other clients instead of relying on
@@ -281,5 +342,6 @@ impl Handler {
 		}
 
 		self.queue.push(server::SyncbackChanges(), Some(0)).ok();
+		succeeded
 	}
 }

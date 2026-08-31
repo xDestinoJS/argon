@@ -47,6 +47,25 @@ fn preserve_existing_properties_for_identity_update(properties: &mut Properties,
 	}
 }
 
+fn expand_partial_properties(snapshot: &mut UpdatedSnapshot, existing: &Properties) {
+	if !snapshot.partial_properties {
+		return;
+	}
+
+	let Some(patch) = snapshot.properties.take() else {
+		return;
+	};
+
+	let mut properties = existing.clone();
+	if patch.contains_key(&ustr("CFrame")) {
+		properties.remove(&ustr("Position"));
+		properties.remove(&ustr("Orientation"));
+		properties.remove(&ustr("Rotation"));
+	}
+	properties.extend(patch);
+	snapshot.properties = Some(properties);
+}
+
 pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 	trace!("Adding {:?} with parent {:?}", snapshot.id, snapshot.parent);
 
@@ -411,6 +430,7 @@ pub fn apply_update(snapshot: UpdatedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 	// but an identity patch must never erase unrelated properties that are
 	// already persisted for the instance.
 	let mut snapshot = snapshot;
+	expand_partial_properties(&mut snapshot, &instance.properties);
 	if let Some(properties) = snapshot.properties.as_mut() {
 		preserve_existing_properties_for_identity_update(properties, &instance.properties);
 	}
@@ -766,7 +786,8 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-	use super::preserve_existing_properties_for_identity_update;
+	use super::{expand_partial_properties, preserve_existing_properties_for_identity_update};
+	use crate::core::snapshot::UpdatedSnapshot;
 	use crate::Properties;
 	use rbx_dom_weak::{
 		types::{Content, Variant},
@@ -786,5 +807,27 @@ mod tests {
 
 		assert!(incoming.contains_key(&ustr("Texture")));
 		assert!(incoming.contains_key(&ustr("Rate")));
+	}
+
+	#[test]
+	fn partial_property_update_keeps_untouched_properties() {
+		let mut existing = Properties::default();
+		existing.insert(ustr("Color"), Variant::String("green".into()));
+		existing.insert(ustr("Transparency"), Variant::Float32(0.5));
+		existing.insert(ustr("Position"), Variant::String("stale alias".into()));
+
+		let mut patch = Properties::default();
+		patch.insert(ustr("CFrame"), Variant::String("updated transform".into()));
+
+		let mut snapshot = UpdatedSnapshot::new(rbx_dom_weak::types::Ref::new());
+		snapshot.properties = Some(patch);
+		snapshot.partial_properties = true;
+		expand_partial_properties(&mut snapshot, &existing);
+
+		let properties = snapshot.properties.unwrap();
+		assert!(properties.contains_key(&ustr("Color")));
+		assert!(properties.contains_key(&ustr("Transparency")));
+		assert!(properties.contains_key(&ustr("CFrame")));
+		assert!(!properties.contains_key(&ustr("Position")));
 	}
 }

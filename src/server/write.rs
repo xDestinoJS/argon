@@ -26,7 +26,11 @@ async fn main(body: Bytes, core: Data<Arc<Core>>) -> impl Responder {
 		return HttpResponse::Unauthorized().body("Not subscribed");
 	}
 
-	core.processor().write(request);
-
-	HttpResponse::Ok().body("Written changes successfully")
+	match core.processor().write(request) {
+		Ok(()) => HttpResponse::Ok().body("Changes durably queued"),
+		Err(err) => {
+			log::error!("Failed to durably queue Studio changes: {err:#}");
+			HttpResponse::InternalServerError().body(format!("Failed to durably queue changes: {err:#}"))
+		}
+	}
 }

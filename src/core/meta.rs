@@ -275,6 +275,19 @@ impl SyncRule {
 		self.exclude.iter().any(|exclude| exclude.matches_path(path))
 	}
 
+	fn matches_source_path(&self, path: &Path) -> bool {
+		if self.is_excluded(path) {
+			return false;
+		}
+
+		self.pattern.as_ref().is_some_and(|pattern| pattern.matches_path(path))
+			|| self.child_pattern.as_ref().is_some_and(|pattern| {
+				path.parent()
+					.and_then(|parent| path.strip_prefix(parent).ok())
+					.is_some_and(|relative| pattern.matches_path(relative))
+			})
+	}
+
 	pub fn get_name(&self, path: &Path) -> String {
 		if let Some(suffix) = &self.suffix {
 			let name = path.get_name();
@@ -388,7 +401,7 @@ impl SyncbackFilter {
 	}
 
 	pub fn matches_class(&self, class: &str) -> bool {
-		self.ignore_classes.contains(&class.to_owned())
+		crate::constants::is_ignored_class(class) || self.ignore_classes.contains(&class.to_owned())
 	}
 
 	pub fn matches_property(&self, property: &str) -> bool {
@@ -455,6 +468,19 @@ impl Context {
 
 	pub fn ignore_rules(&self) -> &Vec<IgnoreRule> {
 		&self.ignore_rules
+	}
+
+	pub fn is_instance_data_path(&self, path: &Path) -> bool {
+		if self.sync_rules.is_empty() {
+			return path
+				.file_name()
+				.and_then(|name| name.to_str())
+				.is_some_and(|name| name.ends_with(".meta.json") || name.ends_with(".data.json"));
+		}
+
+		self.sync_rules()
+			.iter()
+			.any(|rule| rule.middleware == Middleware::InstanceData && rule.matches_source_path(path))
 	}
 
 	pub fn syncback_filter(&self) -> &SyncbackFilter {

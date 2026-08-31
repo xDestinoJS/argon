@@ -7,6 +7,15 @@ use crate::{core::meta::SyncRule, middleware::Middleware};
 // be able to set them in `sync_rules` or project `$path`
 pub const BLACKLISTED_PATHS: [&str; 1] = [".DS_Store"];
 
+// Roblox classes that Argon intentionally leaves unmanaged. `Snap` is a
+// deprecated joint type which appears in very large numbers in legacy models;
+// syncing it is both unnecessary and capable of dominating reconnect diffs.
+pub const IGNORED_CLASSES: [&str; 1] = ["Snap"];
+
+pub fn is_ignored_class(class: &str) -> bool {
+	IGNORED_CLASSES.contains(&class)
+}
+
 // Current version of the project templates, this constant
 // should be manually bumped when there are any changes
 // made to the `assets/templates` directory

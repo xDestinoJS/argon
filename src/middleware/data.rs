@@ -142,8 +142,15 @@ fn metadata_path_for_script(script_path: &Path) -> Option<PathBuf> {
 	})
 }
 
-fn remove_redundant_metadata(path: &Path, processed: &mut HashSet<PathBuf>, removed: &mut Vec<PathBuf>) -> Result<()> {
-	if !path.is_file() || !processed.insert(path.to_owned()) || !has_matching_script(path) {
+fn remove_redundant_metadata(
+	path: &Path,
+	matching_script: Option<bool>,
+	processed: &mut HashSet<PathBuf>,
+	removed: &mut Vec<PathBuf>,
+) -> Result<()> {
+	if !processed.insert(path.to_owned())
+		|| !matching_script.unwrap_or_else(|| path.is_file() && has_matching_script(path))
+	{
 		return Ok(());
 	}
 
@@ -168,7 +175,7 @@ fn scan_for_redundant_script_metadata(
 ) -> Result<()> {
 	if path.is_file() {
 		if let Some(meta_path) = metadata_path_for_script(path) {
-			remove_redundant_metadata(&meta_path, processed, removed)?;
+			remove_redundant_metadata(&meta_path, None, processed, removed)?;
 		}
 		return Ok(());
 	}
@@ -177,14 +184,23 @@ fn scan_for_redundant_script_metadata(
 		return Ok(());
 	}
 
+	let mut entries = Vec::new();
+	let mut script_metadata_paths = HashSet::new();
 	for entry in fs::read_dir(path).with_context(|| format!("Failed to scan project path {}", path.display()))? {
 		let entry = entry?;
 		let file_type = entry.file_type()?;
 		let entry_path = entry.path();
+		if file_type.is_file() {
+			if let Some(meta_path) = metadata_path_for_script(&entry_path) {
+				script_metadata_paths.insert(meta_path);
+			}
+		}
+		entries.push((entry_path, file_type, entry.file_name()));
+	}
 
+	for (entry_path, file_type, file_name) in entries {
 		if file_type.is_dir() {
-			let name = entry.file_name();
-			let name = name.to_string_lossy();
+			let name = file_name.to_string_lossy();
 			if matches!(name.as_ref(), ".git" | ".hg" | ".svn" | "node_modules" | "target") {
 				continue;
 			}
@@ -195,7 +211,8 @@ fn scan_for_redundant_script_metadata(
 				.and_then(|name| name.to_str())
 				.is_some_and(|name| name.ends_with(".meta.json"))
 		{
-			remove_redundant_metadata(&entry_path, processed, removed)?;
+			let matching_script = script_metadata_paths.contains(&entry_path);
+			remove_redundant_metadata(&entry_path, Some(matching_script), processed, removed)?;
 		}
 	}
 
@@ -230,9 +247,22 @@ pub fn cleanup_redundant_script_metadata(project: &Project) -> Result<Vec<PathBu
 	let mut source_paths = HashSet::new();
 	collect_paths(&project.node, &workspace, &mut source_paths);
 
+	let mut source_paths = source_paths.into_iter().collect::<Vec<_>>();
+	source_paths.sort_by_key(|path| path.components().count());
+	let mut scan_paths = Vec::new();
+	for path in source_paths {
+		if scan_paths
+			.iter()
+			.any(|root: &PathBuf| root.is_dir() && path.starts_with(root))
+		{
+			continue;
+		}
+		scan_paths.push(path);
+	}
+
 	let mut processed = HashSet::new();
 	let mut removed = Vec::new();
-	for path in source_paths {
+	for path in scan_paths {
 		scan_for_redundant_script_metadata(&path, &mut processed, &mut removed)?;
 	}
 
@@ -442,6 +472,9 @@ pub fn write_data<'a>(
 			properties.remove(&ustr("RunContext"));
 		}
 
+		// Source files should not gain sibling metadata solely for Argon's
+		// identity marker. Non-script instances retain ArgonId so references can
+		// resolve to the same objects after reconnecting to a fresh place.
 		if let Some(Variant::Attributes(attributes)) = properties.get_mut(&ustr("Attributes")) {
 			attributes.remove("ArgonId");
 			if attributes.is_empty() {
@@ -557,8 +590,10 @@ mod tests {
 		vfs.create_dir(Path::new("src")).unwrap();
 		vfs.write(path, br#"{"properties":{"Attributes":{}}}"#).unwrap();
 
+		let mut attributes = Attributes::new();
+		attributes.insert("ArgonId".into(), "0123456789abcdef0123456789abcdef".into());
 		let mut properties = Properties::default();
-		properties.insert(ustr("Attributes"), Variant::Attributes(Attributes::new()));
+		properties.insert(ustr("Attributes"), Variant::Attributes(attributes));
 
 		let result = write_data(true, "ModuleScript", properties, path, &Meta::new(), &vfs).unwrap();
 		assert!(result.is_none());
@@ -583,6 +618,31 @@ mod tests {
 		let properties = data.get("properties").unwrap().as_object().unwrap();
 		assert!(!properties.contains_key("Attributes"));
 		assert_eq!(properties.get("Disabled"), Some(&serde_json::Value::Bool(true)));
+	}
+
+	#[test]
+	fn ordinary_instance_data_keeps_argon_id_for_reference_identity() {
+		let vfs = Vfs::new_virtual();
+		let path = Path::new("src/Frame.meta.json");
+		vfs.create_dir(Path::new("src")).unwrap();
+
+		let mut attributes = Attributes::new();
+		attributes.insert("ArgonId".into(), "0123456789abcdef0123456789abcdef".into());
+		attributes.insert("Owner".into(), "Studio".into());
+		let mut properties = Properties::default();
+		properties.insert(ustr("Attributes"), Variant::Attributes(attributes));
+
+		write_data(false, "Frame", properties, path, &Meta::new(), &vfs).unwrap();
+		let data: serde_json::Value = serde_json::from_str(&vfs.read_to_string(path).unwrap()).unwrap();
+		let attributes = data["properties"]["Attributes"].as_object().unwrap();
+		assert_eq!(
+			attributes.get("ArgonId"),
+			Some(&serde_json::Value::String("0123456789abcdef0123456789abcdef".into()))
+		);
+		assert_eq!(
+			attributes.get("Owner"),
+			Some(&serde_json::Value::String("Studio".into()))
+		);
 	}
 
 	#[test]

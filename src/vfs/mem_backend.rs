@@ -5,7 +5,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 
-use super::{VfsBackend, VfsEvent};
+use super::{VfsBackend, VfsEvent, VfsPathKind};
 
 #[derive(Debug)]
 pub enum VfsEntry {
@@ -142,6 +142,14 @@ impl VfsBackend for MemBackend {
 
 	fn is_file(&self, path: &Path) -> bool {
 		matches!(self.inner.get(path), Some(VfsEntry::File(_)))
+	}
+
+	fn path_kind(&self, path: &Path) -> VfsPathKind {
+		match self.inner.get(path) {
+			Some(VfsEntry::File(_)) => VfsPathKind::File,
+			Some(VfsEntry::Directory(_)) => VfsPathKind::Directory,
+			None => VfsPathKind::Missing,
+		}
 	}
 
 	fn watch(&mut self, _path: &Path, _recursive: bool) -> Result<()> {

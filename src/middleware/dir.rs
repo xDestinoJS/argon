@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::new_snapshot;
 use crate::{
@@ -12,14 +12,14 @@ use crate::{
 };
 
 #[profiling::function]
-pub fn read_dir(path: &Path, context: &Context, vfs: &Vfs) -> Result<Snapshot> {
+pub fn read_dir(path: &Path, context: &Context, vfs: &Vfs, entries: Vec<PathBuf>) -> Result<Snapshot> {
 	let name = path.get_name();
 
 	let mut snapshot = Snapshot::new()
 		.with_name(name)
 		.with_meta(Meta::new().with_context(context).with_source(Source::directory(path)));
 
-	for path in vfs.read_dir(path)? {
+	for path in entries {
 		if let Some(child_snapshot) = new_snapshot(&path, context, vfs)? {
 			snapshot.add_child(child_snapshot);
 		}

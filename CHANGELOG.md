@@ -6,6 +6,77 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.136] - 2026-08-31
+
+### Fixed
+
+- Exclude deprecated `Snap` joints from filesystem snapshots, Studio reconciliation, syncback, and change application.
+- Keep legacy reference IDs as lookup-only aliases so reference repair cannot overwrite canonical live `ArgonId` attributes.
+- Prevent compatibility aliases from displacing another instance's canonical identity and normalize persisted IDs before matching.
+- Recover stale-ID duplicate siblings through an indexed spatial match instead of quadratic all-pairs property scoring.
+
+## [2.0.135] - 2026-08-27
+
+### Fixed
+
+- Avoid rescanning and reconciling the entire project during every reconnect snapshot request. This prevented reconnects from manufacturing false add/update/remove diffs and reduced initial Studio freezes.
+- Preserve persisted ArgonId-first pairing for duplicate-named instances during normal filesystem rescans.
+
+## [2.0.133] - 2026-08-27
+
+### Performance
+
+- Reuse each directory listing while detecting child sources and constructing snapshot children instead of enumerating thousands of instance directories twice.
+- Resolve each snapshot path's filesystem type with one metadata lookup and reuse known directory state while locating instance metadata.
+- Match script metadata against sibling source files in-memory during startup cleanup, avoiding repeated filesystem probes for every `init.meta.json`.
+- Collapse overlapping project source roots before cleanup so nested mounts are not traversed repeatedly.
+
+## [2.0.132] - 2026-08-27
+
+### Fixed
+
+- Persist every Studio write to an ordered, per-batch write-ahead journal before acknowledging it, and replay incomplete batches after a server or machine crash.
+- Store crash journals in Argon's user data directory instead of attempting to create them beneath the project JSON file.
+- Atomically replace synced files only after their complete contents have been flushed, preventing interrupted writes from leaving truncated metadata.
+- Coalesce queued transform checkpoints to their latest values so recovery guarantees do not multiply large-model disk writes.
+
+## [2.0.131] - 2026-08-27
+
+### Fixed
+
+- Merge high-volume spatial property patches into existing instance metadata so large model transforms preserve every untouched property without requiring full snapshots for each part.
+
+## [2.0.130] - 2026-08-27
+
+### Fixed
+
+- Make project service roots authoritative by default so server-priority sync removes creatable Studio instances that are absent from disk, while preserving the explicit `$keepUnknowns` opt-in.
+
+## [2.0.129] - 2026-08-26
+
+### Fixed
+
+- Restrict deferred Studio transform handling to real 3D pivot instances, preventing property-name collisions with UI and effects properties.
+
+## [2.0.128] - 2026-08-26
+
+### Fixed
+
+- Preserve and apply ParticleEmitter `Orientation` enum values during reconnect and server-to-Studio updates.
+
+## [2.0.127] - 2026-08-26
+
+### Fixed
+
+- Accept legacy string-encoded UDim values in StyleRule properties such as `CornerRadius` when connecting to an empty place.
+
+## [2.0.126] - 2026-08-24
+
+### Fixed
+
+- Persist `ArgonId` metadata for Studio-owned instances so references such as Trail attachments survive fresh-place reconnects.
+- Continue omitting identity-only metadata beside script source files.
+
 ## [2.0.124] - 2026-08-15
 
 ### Fixed
@@ -614,3 +685,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 [2.0.0-pre3]: https://github.com/argon-rbx/argon/compare/2.0.0-pre2...2.0.0-pre3
 [2.0.0-pre2]: https://github.com/argon-rbx/argon/compare/2.0.0-pre1...2.0.0-pre2
 [2.0.0-pre1]: https://github.com/argon-rbx/argon/compare/1.3.0...2.0.0-pre1
+## [2.0.134] - 2026-08-27
+
+- Keep reconnect identity matching stable for duplicate-named instances.
