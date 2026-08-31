@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.138] - 2026-08-31
+
+### Fixed
+
+- Use short atomic-write temporary filenames so deeply nested duplicate-instance metadata remains writable on Windows.
+
 ## [2.0.137] - 2026-08-31
 
 ### Fixed

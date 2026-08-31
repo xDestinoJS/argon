@@ -12,8 +12,11 @@ use super::{debouncer::VfsDebouncer, VfsBackend, VfsEvent, VfsPathKind};
 use crate::config::Config;
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
-	let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("argon-data");
-	let temp_path = path.with_file_name(format!(".{file_name}.{}.tmp", Uuid::new_v4().simple()));
+	// Keep the temporary name shorter than common metadata filenames. Appending a
+	// full UUID to `init.meta.json` pushed deeply nested duplicate-instance paths
+	// past Windows' path limit even when the destination itself was writable.
+	let token = Uuid::new_v4().simple().to_string();
+	let temp_path = path.with_file_name(format!(".a{}", &token[..8]));
 
 	let result = (|| -> Result<()> {
 		let mut temp = OpenOptions::new().create_new(true).write(true).open(&temp_path)?;
@@ -267,6 +270,15 @@ mod tests {
 
 		assert_eq!(fs::read(&path).unwrap(), b"{}");
 		fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn atomic_temp_name_is_shorter_than_instance_metadata_name() {
+		let target = Path::new("deep").join("init.meta.json");
+		let token = Uuid::new_v4().simple().to_string();
+		let temp = target.with_file_name(format!(".a{}", &token[..8]));
+
+		assert!(temp.as_os_str().len() < target.as_os_str().len());
 	}
 
 	#[test]
