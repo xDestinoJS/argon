@@ -8,9 +8,11 @@ use crate::{core::meta::SyncRule, middleware::Middleware};
 pub const BLACKLISTED_PATHS: [&str; 1] = [".DS_Store"];
 
 // Roblox classes that Argon intentionally leaves unmanaged. `Snap` is a
-// deprecated joint type which appears in very large numbers in legacy models;
-// syncing it is both unnecessary and capable of dominating reconnect diffs.
-pub const IGNORED_CLASSES: [&str; 1] = ["Snap"];
+// deprecated joint type which appears in very large numbers in legacy models.
+// `TouchTransmitter` is an engine-owned marker (`TouchInterest`) which cannot
+// be created through Instance.new. Syncing either class creates permanent
+// reconciliation churn without preserving useful project state.
+pub const IGNORED_CLASSES: [&str; 2] = ["Snap", "TouchTransmitter"];
 
 pub fn is_ignored_class(class: &str) -> bool {
 	IGNORED_CLASSES.contains(&class)

@@ -393,4 +393,21 @@ mod tests {
 		let snapshot = new_snapshot(root, &Context::default(), &vfs).unwrap().unwrap();
 		assert!(snapshot.children.is_empty());
 	}
+
+	#[test]
+	fn engine_owned_touch_transmitters_are_not_snapshotted() {
+		let vfs = Vfs::new_virtual();
+		let root = Path::new("project");
+		let touch_interest = root.join("TouchInterest");
+
+		vfs.create_dir(&touch_interest).unwrap();
+		vfs.write(
+			&touch_interest.join("init.meta.json"),
+			br#"{"className":"TouchTransmitter","properties":{"Attributes":{"ArgonId":"0123456789abcdef0123456789abcdef"}}}"#,
+		)
+		.unwrap();
+
+		let snapshot = new_snapshot(root, &Context::default(), &vfs).unwrap().unwrap();
+		assert!(snapshot.children.is_empty());
+	}
 }

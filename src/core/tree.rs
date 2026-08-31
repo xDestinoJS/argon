@@ -295,6 +295,9 @@ mod tests {
 	fn ignored_classes_are_pruned_from_nested_snapshots() {
 		let snapshot = Snapshot::new().with_class("DataModel").with_children(vec![
 			Snapshot::new().with_name("Legacy joint").with_class("Snap"),
+			Snapshot::new()
+				.with_name("TouchInterest")
+				.with_class("TouchTransmitter"),
 			Snapshot::new().with_name("Kept part").with_class("Part"),
 		]);
 

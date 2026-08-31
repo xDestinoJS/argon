@@ -8,7 +8,7 @@ use crate::{
 	config::Config,
 	core::{
 		helpers::syncback::{rename_path, serialize_properties, validate_properties, verify_name, verify_path},
-		meta::{Meta, NodePath, Source, SourceEntry, SourceKind},
+		meta::{Meta, NodePath, Source, SourceEntry, SourceKind, SyncbackFilter},
 		snapshot::{AddedSnapshot, Snapshot, UpdatedSnapshot},
 		tree::Tree,
 	},
@@ -66,6 +66,17 @@ fn expand_partial_properties(snapshot: &mut UpdatedSnapshot, existing: &Properti
 	snapshot.properties = Some(properties);
 }
 
+fn prune_filtered_children(snapshot: &mut Snapshot, filter: &SyncbackFilter) {
+	snapshot.children.retain_mut(|child| {
+		if filter.matches_name(&child.name) || filter.matches_class(&child.class) {
+			return false;
+		}
+
+		prune_filtered_children(child, filter);
+		true
+	});
+}
+
 pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 	trace!("Adding {:?} with parent {:?}", snapshot.id, snapshot.parent);
 
@@ -94,6 +105,7 @@ pub fn apply_addition(snapshot: AddedSnapshot, tree: &mut Tree, vfs: &Vfs) -> Re
 	}
 
 	snapshot.properties = validate_properties(snapshot.properties, filter);
+	prune_filtered_children(&mut snapshot, filter);
 
 	fn locate_instance_data(is_dir: bool, path: &Path, snapshot: &Snapshot, parent_meta: &Meta) -> Result<PathBuf> {
 		parent_meta
@@ -786,8 +798,11 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-	use super::{expand_partial_properties, preserve_existing_properties_for_identity_update};
-	use crate::core::snapshot::UpdatedSnapshot;
+	use super::{expand_partial_properties, preserve_existing_properties_for_identity_update, prune_filtered_children};
+	use crate::core::{
+		meta::SyncbackFilter,
+		snapshot::{Snapshot, UpdatedSnapshot},
+	};
 	use crate::Properties;
 	use rbx_dom_weak::{
 		types::{Content, Variant},
@@ -829,5 +844,24 @@ mod tests {
 		assert!(properties.contains_key(&ustr("Transparency")));
 		assert!(properties.contains_key(&ustr("CFrame")));
 		assert!(!properties.contains_key(&ustr("Position")));
+	}
+
+	#[test]
+	fn nested_engine_owned_instances_are_pruned_from_studio_additions() {
+		let mut snapshot = Snapshot::new().with_class("Model").with_children(vec![Snapshot::new()
+			.with_name("Handle")
+			.with_class("Part")
+			.with_children(vec![
+				Snapshot::new()
+					.with_name("TouchInterest")
+					.with_class("TouchTransmitter"),
+				Snapshot::new().with_name("Kept script").with_class("Script"),
+			])]);
+
+		prune_filtered_children(&mut snapshot, &SyncbackFilter::default());
+
+		let handle = &snapshot.children[0];
+		assert_eq!(handle.children.len(), 1);
+		assert_eq!(handle.children[0].class, "Script");
 	}
 }

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.141] - 2026-08-31
+
+### Fixed
+
+- Ignore engine-owned `TouchTransmitter` (`TouchInterest`) instances in snapshots and identity tracking because Roblox does not allow plugins to create them.
+- Prune ignored classes recursively from Studio additions before writing nested toolbox models to disk.
+
 ## [2.0.140] - 2026-08-31
 
 ### Fixed
