@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.139] - 2026-08-31
+
+### Changed
+
+- Publish the matching server build for the plugin's welded spatial-update fix.
+
 ## [2.0.138] - 2026-08-31
 
 ### Fixed
