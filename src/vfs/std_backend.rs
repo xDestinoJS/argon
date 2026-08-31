@@ -11,7 +11,7 @@ use uuid::Uuid;
 use super::{debouncer::VfsDebouncer, VfsBackend, VfsEvent, VfsPathKind};
 use crate::config::Config;
 
-fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
+fn atomic_write(path: &Path, contents: &[u8]) -> Result<PathBuf> {
 	// Keep the temporary name shorter than common metadata filenames. Appending a
 	// full UUID to `init.meta.json` pushed deeply nested duplicate-instance paths
 	// past Windows' path limit even when the destination itself was writable.
@@ -40,10 +40,13 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
 		unreachable!()
 	})();
 
-	if result.is_err() {
-		let _ = fs::remove_file(&temp_path);
+	match result {
+		Ok(()) => Ok(temp_path),
+		Err(err) => {
+			let _ = fs::remove_file(&temp_path);
+			Err(err)
+		}
 	}
-	result
 }
 
 #[cfg(windows)]
@@ -134,11 +137,17 @@ impl VfsBackend for StdBackend {
 			fs::create_dir_all(parent)?;
 		}
 
-		let result = atomic_write(path, contents);
-		if result.is_ok() {
-			self.debouncer.record_syncback_path(path);
+		match atomic_write(path, contents) {
+			Ok(temp_path) => {
+				// MoveFileEx emits delayed notifications for both the destination and
+				// Argon's short-lived atomic temporary file on Windows. Record both
+				// final states so neither can be mistaken for a later external edit.
+				self.debouncer.record_syncback_path(path);
+				self.debouncer.record_syncback_path(&temp_path);
+				Ok(())
+			}
+			Err(err) => Err(err),
 		}
-		result
 	}
 
 	fn create_dir(&mut self, path: &Path) -> Result<()> {
@@ -292,6 +301,28 @@ mod tests {
 		backend.write(&path, b"local x = 1\nreturn x\n").unwrap();
 
 		assert_eq!(fs::read(&path).unwrap(), b"local x = 1\r\nreturn x\r\n");
+		fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn watched_syncback_write_does_not_emit_a_server_change() {
+		let root = std::env::temp_dir().join(format!("argon-vfs-watch-{}", Uuid::new_v4()));
+		let path = root.join("init.meta.json");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(&path, b"before").unwrap();
+
+		let mut backend = StdBackend::new(true);
+		backend.watch(&root, true).unwrap();
+		let receiver = backend.receiver();
+		std::thread::sleep(std::time::Duration::from_millis(100));
+
+		backend.pause();
+		backend.write(&path, b"after").unwrap();
+		backend.resume();
+
+		let event = receiver.recv_timeout(std::time::Duration::from_secs(2));
+		assert!(event.is_err(), "Studio syncback leaked watcher event: {event:?}");
+
 		fs::remove_dir_all(root).unwrap();
 	}
 }

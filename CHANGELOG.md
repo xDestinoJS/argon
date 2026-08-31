@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.140] - 2026-08-31
+
+### Fixed
+
+- Suppress delayed Windows watcher notifications for atomic-write temporary files so Studio-originated changes are not downloaded back into the originating place.
+
 ## [2.0.139] - 2026-08-31
 
 ### Changed
