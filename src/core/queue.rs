@@ -86,7 +86,7 @@ impl Queue {
 
 			*unsynced_changes += 1;
 
-			if max_unsynced_changes > 0 && *unsynced_changes >= max_unsynced_changes {
+			if max_unsynced_changes > 0 && *unsynced_changes == max_unsynced_changes {
 				argon_warn!(
 					"There are {} unsynced changes. Connect at least one client to this server or increase max_unsynced_changes setting to suppress this warning",
 					unsynced_changes.to_string().bold()

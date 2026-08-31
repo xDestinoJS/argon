@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.137] - 2026-08-31
+
+### Fixed
+
+- Keep the durable Studio processor alive after an individual filesystem write fails, preventing all later syncback requests from hitting a permanently disconnected channel.
+- Coalesce repeated update-only crash journals to their final property values before recovery and discard stale updates whose filesystem targets no longer exist.
+- Emit the unsynced-change threshold warning once instead of repeating it for every later filesystem event.
+
 ## [2.0.136] - 2026-08-31
 
 ### Fixed
